@@ -5,8 +5,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
 
 // Define the exact shape of the user payload attached to the request
 export interface UserPayload {
-  phoneNumber?: string;
-  email?: string;
+  id?: number | string;
+  userId?: number | string;
+  phoneNumber?: string | null;
+  email?: string | null;
   [key: string]: any;
 }
 
@@ -38,7 +40,6 @@ export const protect = (req: AuthenticatedRequest, res: Response, next: NextFunc
   }
 
   try {
-    // Safely verify and cast the JWT payload to our UserPayload type
     const decoded = jwt.verify(token, JWT_SECRET) as UserPayload;
     req.user = decoded; 
     next();

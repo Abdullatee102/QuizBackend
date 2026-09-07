@@ -1,33 +1,56 @@
 import { Router } from 'express';
-import { sendOtp, verifyOtp, signup, login, forgotPassword, resetPassword } from '../controllers/auth.controller.js';
+import { 
+  sendOtp, 
+  verifyOtp, 
+  signUp, 
+  login, 
+  forgotPassword, 
+  resetPassword, 
+  googleAuth, 
+  refreshToken, 
+  logout, 
+  getProfile, 
+  updateProfile,
+  submitQuizHistory,
+  getLeaderboard,
+  getQuizHistory,
+  changePassword,
+  getAchievements,
+  unlockAchievement
+} from '../controllers/auth.controller.js';
+import { getQuestionsByCategory } from '../controllers/quiz.controller.js';
 import { validate } from '../middlewares/validate.middleware.js';
 import { protect, type AuthenticatedRequest } from '../middlewares/auth.middleware.js';
 import { 
   sendOtpSchema, 
   verifyOtpSchema, 
-  signupSchema, 
+  signUpSchema, 
   loginSchema, 
   forgotPasswordSchema,
-  resetPasswordSchema 
+  resetPasswordSchema,
+  refreshTokenSchema,
+  submitQuizHistorySchema,
+  updateProfileSchema,
+  changePasswordSchema,
+  unlockAchievementSchema
 } from '../schemas/auth.schemas.js';
 import type { Response } from 'express';
 
 const router = Router();
 
-router.post('/signup', validate(signupSchema), signup);
-
+// --- AUTHENTICATION & ACCOUNT ROUTES ---
+router.post('/signup', validate(signUpSchema), signUp);
 router.post('/login', validate(loginSchema), login);
-
+router.post('/google', googleAuth);
+router.post('/refresh-token', validate(refreshTokenSchema), refreshToken);
 router.post('/send-otp', validate(sendOtpSchema), sendOtp);
-
 router.post('/verify-otp', validate(verifyOtpSchema), verifyOtp);
-
-// Route: POST /api/auth/forgot-password
 router.post('/forgot-password', validate(forgotPasswordSchema), forgotPassword);
-
 router.post('/reset-password', validate(resetPasswordSchema), resetPassword);
+router.post('/change-password', protect, validate(changePasswordSchema), changePassword);
+router.post('/logout', protect, logout);
 
-// Route: GET /api/auth/me (Protected Route to test JWT middleware)
+// --- STATIC SUB-RESOURCE & PROFILE ROUTES (Must be placed before dynamic routes) ---
 router.get('/me', protect, (req: AuthenticatedRequest, res: Response): void => {
   res.status(200).json({
     status: 'success',
@@ -35,5 +58,19 @@ router.get('/me', protect, (req: AuthenticatedRequest, res: Response): void => {
     user: req.user,
   });
 });
+
+router.get('/profile', protect, getProfile);
+router.patch('/profile', protect, validate(updateProfileSchema), updateProfile);
+
+router.post('/quiz-history', protect, validate(submitQuizHistorySchema), submitQuizHistory);
+router.get('/quiz-history', protect, getQuizHistory);
+
+router.get('/achievements', protect, getAchievements);
+router.post('/achievements/unlock', protect, validate(unlockAchievementSchema), unlockAchievement);
+
+router.get('/leaderboard', protect, getLeaderboard);
+
+// --- DYNAMIC PARAMETER ROUTES (Must be placed last to avoid shadowing) ---
+router.get('/:categoryId', protect, getQuestionsByCategory);
 
 export default router;

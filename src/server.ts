@@ -1,8 +1,10 @@
+// src/index.ts
 import express from 'express';
 import type { Application, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.routes.js';
+import logger from './config/logger.js';
 
 dotenv.config();
 
@@ -23,5 +25,5 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  logger.info(`Server is running on http://localhost:${PORT}`);
 });
