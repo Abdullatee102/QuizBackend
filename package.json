@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "seed": "tsx src/seed.ts"
   },
   "keywords": [
     "quiz",

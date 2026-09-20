@@ -1,29 +1,83 @@
-// src/index.ts
 import express from 'express';
-import type { Application, Request, Response } from 'express';
+
+import type {
+  Application,
+  Request,
+  Response,
+} from 'express';
+
 import cors from 'cors';
+
 import dotenv from 'dotenv';
+
 import authRoutes from './routes/auth.routes.js';
+
+import notificationRoutes from './routes/notification.routes.js';
+
 import logger from './config/logger.js';
 
 dotenv.config();
 
 const app: Application = express();
-const PORT = process.env.PORT || 5000;
 
-// Middlewares
+const PORT =
+  process.env.PORT || 5000;
+
+// =====================================================
+// MIDDLEWARE
+// =====================================================
+
 app.use(express.json());
+
 app.use(cors());
 
-// Mount Routes
-app.use('/api/auth', authRoutes);
+// =====================================================
+// AUTH ROUTES
+// =====================================================
 
-// Health check route
-app.get('/api/health', (req: Request, res: Response) => {
-  res.status(200).json({ status: 'success', message: 'Backend server is running smoothly!' });
-});
+app.use(
+  '/api/auth',
+  authRoutes
+);
 
-// Start server
-app.listen(PORT, () => {
-  logger.info(`Server is running on http://localhost:${PORT}`);
-});
+// =====================================================
+// NOTIFICATION ROUTES
+// =====================================================
+
+app.use(
+  '/api/notifications',
+  notificationRoutes
+);
+
+// =====================================================
+// HEALTH CHECK
+// =====================================================
+
+app.get(
+  '/api/health',
+  (
+    req: Request,
+    res: Response
+  ) => {
+
+    res.status(200).json({
+      status: 'success',
+      message:
+        'Backend server is running smoothly!',
+    });
+  }
+);
+
+// =====================================================
+// START SERVER
+// =====================================================
+
+app.listen(
+  PORT,
+  () => {
+
+    logger.info(
+      `Server is running on http://localhost:${PORT}`
+    );
+  }
+);

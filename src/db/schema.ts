@@ -1,49 +1,386 @@
-import { pgTable, text, timestamp, integer, real, uuid } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  real,
+  uuid,
+  jsonb,
+  boolean,
+  unique,
+} from 'drizzle-orm/pg-core';
+
+// =====================================================
+// GRADING POINT TYPE
+// =====================================================
+
+export type GradingPoint = {
+  concept: string;
+  weight: number;
+  aliases?: string[];
+};
+
+// =====================================================
+// USERS
+// =====================================================
 
 export const usersTable = pgTable('users', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  fullName: text('full_name').notNull(),
-  username: text('username').unique(),
-  email: text('email').unique(),
-  phoneNumber: text('phone_number').unique(),
+  id: uuid('id')
+    .defaultRandom()
+    .primaryKey(),
+
+  fullName: text('full_name')
+    .notNull(),
+
+  username: text('username')
+    .unique(),
+
+  email: text('email')
+    .unique(),
+
+  phoneNumber: text('phone_number')
+    .unique(),
+
   bio: text('bio'),
+
   photoURL: text('photo_url'),
-  password: text('password').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+
+  password: text('password')
+    .notNull(),
+
+  createdAt: timestamp('created_at')
+    .defaultNow()
+    .notNull(),
 });
 
-export const refreshTokensTable = pgTable('refresh_tokens', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  userId: uuid('user_id').references(() => usersTable.id, { onDelete:"cascade" }).notNull(),
-  token: text('token').notNull().unique(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+// =====================================================
+// REFRESH TOKENS
+// =====================================================
 
-export const quizHistoryTable = pgTable('quiz_history', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  userId: uuid('user_id').references(() => usersTable.id, { onDelete: 'cascade' }).notNull(),
-  category: text('category').notNull(),
-  score: real('score').notNull(),
-  correctAnswers: integer('correct_answers').notNull(),
-  totalQuestions: integer('total_questions').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+export const refreshTokensTable = pgTable(
+  'refresh_tokens',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
 
-export const achievementsTable = pgTable('achievements', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  userId: uuid('user_id').references(() => usersTable.id, { onDelete: 'cascade' }).notNull(),
-  achievementKey: text('achievement_key').notNull(),
-  title: text('title').notNull(),
-  description: text('description'),
-  icon: text('icon'),
-  unlockedAt: timestamp('created_at').defaultNow().notNull(),
-});
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
 
-export const questionsTable = pgTable('questions', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  category: text('category').notNull(),
-  question: text('question').notNull(),
-  options: text('options').array().notNull(), 
-  correctAnswer: text('correct_answer').notNull(),
-  difficulty: text('difficulty').default('medium').notNull(),
-});
+    token: text('token')
+      .notNull()
+      .unique(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  }
+);
+
+// =====================================================
+// USER DEVICES
+// =====================================================
+
+/*
+ * Stores Expo push tokens for the user's devices.
+ *
+ * A user can have multiple devices:
+ *
+ * User
+ *  ├── Android phone
+ *  ├── iPhone
+ *  └── Tablet
+ *
+ * Each device therefore has its own push token.
+ */
+
+export const userDevicesTable = pgTable(
+  'user_devices',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    pushToken: text('push_token')
+      .notNull()
+      .unique(),
+
+    platform: text('platform')
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull(),
+  }
+);
+
+// =====================================================
+// NOTIFICATIONS
+// =====================================================
+
+/*
+ * In-app notification inbox.
+ *
+ * Push notifications are delivered through Expo.
+ * This table keeps a permanent record so the user
+ * can still see the notification inside the app.
+ */
+
+export const notificationsTable = pgTable(
+  'notifications',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    type: text('type')
+      .notNull(),
+
+    title: text('title')
+      .notNull(),
+
+    body: text('body')
+      .notNull(),
+
+    data: jsonb('data')
+      .$type<Record<string, any>>()
+      .default({})
+      .notNull(),
+
+    isRead: boolean('is_read')
+      .default(false)
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+
+    readAt: timestamp('read_at'),
+  }
+);
+
+// =====================================================
+// FACULTIES
+// =====================================================
+
+export const facultiesTable = pgTable(
+  'faculties',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    name: text('name')
+      .notNull()
+      .unique(),
+
+    code: text('code')
+      .notNull()
+      .unique(),
+  }
+);
+
+// =====================================================
+// DEPARTMENTS
+// =====================================================
+
+export const departmentsTable = pgTable(
+  'departments',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    facultyId: uuid('faculty_id')
+      .references(() => facultiesTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    name: text('name')
+      .notNull(),
+
+    code: text('code')
+      .notNull(),
+  }
+);
+
+// =====================================================
+// COURSES
+// =====================================================
+
+export const coursesTable = pgTable(
+  'courses',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    departmentId: uuid('department_id')
+      .references(() => departmentsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    code: text('code')
+      .notNull(),
+
+    title: text('title')
+      .notNull(),
+
+    level: integer('level')
+      .notNull(),
+
+    semester: text('semester')
+      .notNull(),
+  }
+);
+
+// =====================================================
+// QUESTIONS
+// =====================================================
+
+export const questionsTable = pgTable(
+  'questions',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    courseId: uuid('course_id')
+      .references(() => coursesTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    type: text('type')
+      .default('cbt')
+      .notNull(),
+
+    // cbt or theory
+
+    question: text('question')
+      .notNull(),
+
+    options: text('options')
+      .array(),
+
+    correctAnswer: text('correct_answer')
+      .notNull(),
+
+    gradingPoints: jsonb('grading_points')
+      .$type<GradingPoint[]>()
+      .default([])
+      .notNull(),
+
+    difficulty: text('difficulty')
+      .default('medium')
+      .notNull(),
+  }
+);
+
+// =====================================================
+// QUIZ HISTORY
+// =====================================================
+
+export const quizHistoryTable = pgTable(
+  'quiz_history',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    courseId: uuid('course_id')
+      .references(() => coursesTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    quizType: text('quiz_type')
+      .default('cbt')
+      .notNull(),
+
+    category: text('category')
+      .notNull(),
+
+    score: real('score')
+      .notNull(),
+
+    correctAnswers: integer('correct_answers')
+      .notNull(),
+
+    totalQuestions: integer('total_questions')
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  }
+);
+
+// =====================================================
+// ACHIEVEMENTS
+// =====================================================
+
+export const achievementsTable = pgTable(
+  'achievements',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    achievementKey: text('achievement_key')
+      .notNull(),
+
+    title: text('title')
+      .notNull(),
+
+    description: text('description'),
+
+    icon: text('icon'),
+
+    unlockedAt: timestamp('unlocked_at')
+      .defaultNow()
+      .notNull(),
+  },
+
+  (table) => ({
+    userAchievementUnique: unique(
+      'user_achievement_unique'
+    ).on(
+      table.userId,
+      table.achievementKey
+    ),
+  })
+);
