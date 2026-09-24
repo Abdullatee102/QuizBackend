@@ -14,6 +14,8 @@ import authRoutes from './routes/auth.routes.js';
 
 import notificationRoutes from './routes/notification.routes.js';
 
+import messageRoutes from './routes/message.routes.js';
+
 import logger from './config/logger.js';
 
 dotenv.config();
@@ -47,6 +49,15 @@ app.use(
 app.use(
   '/api/notifications',
   notificationRoutes
+);
+
+// =====================================================
+// MESSAGE ROUTES
+// =====================================================
+
+app.use(
+  '/api/messages',
+  messageRoutes
 );
 
 // =====================================================

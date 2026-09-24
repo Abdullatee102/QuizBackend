@@ -384,3 +384,77 @@ export const achievementsTable = pgTable(
     ),
   })
 );
+
+// =====================================================
+// CONVERSATIONS (Academic Discussions & Messaging)
+// =====================================================
+
+export const conversationsTable = pgTable(
+  'conversations',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    // 'faculty' | 'department' | 'level' | 'direct'
+    type: text('type')
+      .notNull(),
+
+    title: text('title')
+      .notNull(),
+
+    code: text('code'),
+
+    facultyId: uuid('faculty_id')
+      .references(() => facultiesTable.id, {
+        onDelete: 'cascade',
+      }),
+
+    departmentId: uuid('department_id')
+      .references(() => departmentsTable.id, {
+        onDelete: 'cascade',
+      }),
+
+    level: integer('level'),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull(),
+  }
+);
+
+// =====================================================
+// MESSAGES
+// =====================================================
+
+export const messagesTable = pgTable(
+  'messages',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    conversationId: uuid('conversation_id')
+      .references(() => conversationsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    senderId: uuid('sender_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    text: text('text')
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  }
+);
