@@ -48,6 +48,18 @@ export const usersTable = pgTable('users', {
   password: text('password')
     .notNull(),
 
+  facultyId: uuid('faculty_id')
+    .references(() => facultiesTable.id, {
+      onDelete: 'set null',
+    }),
+
+  departmentId: uuid('department_id')
+    .references(() => departmentsTable.id, {
+      onDelete: 'set null',
+    }),
+
+  level: integer('level'),
+
   createdAt: timestamp('created_at')
     .defaultNow()
     .notNull(),
@@ -451,6 +463,79 @@ export const messagesTable = pgTable(
       .notNull(),
 
     text: text('text')
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  }
+);
+
+// =====================================================
+// SUPPORT REQUESTS & MESSAGES
+// =====================================================
+
+export const supportRequestsTable = pgTable(
+  'support_requests',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    subject: text('subject')
+      .notNull(),
+
+    category: text('category')
+      .notNull(),
+
+    status: text('status')
+      .default('open')
+      .notNull(),
+
+    priority: text('priority')
+      .default('medium')
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull(),
+  }
+);
+
+export const supportMessagesTable = pgTable(
+  'support_messages',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    requestId: uuid('request_id')
+      .references(() => supportRequestsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    senderId: uuid('sender_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    senderRole: text('sender_role')
+      .default('user')
+      .notNull(),
+
+    message: text('message')
       .notNull(),
 
     createdAt: timestamp('created_at')

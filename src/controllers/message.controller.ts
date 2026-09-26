@@ -8,11 +8,12 @@ import { messageService } from '../services/messageService.js';
 // =====================================================
 
 export const getAcademicChannels = async (
-  _req: AuthenticatedRequest,
+  req: AuthenticatedRequest,
   res: Response
 ): Promise<void> => {
   try {
-    const channels = await messageService.listAcademicChannels();
+    const departmentId = typeof req.query.departmentId === 'string' ? req.query.departmentId : undefined;
+    const channels = await messageService.listAcademicChannels(departmentId);
     res.status(200).json({
       status: 'success',
       data: channels,
@@ -92,6 +93,8 @@ export const getConversation = async (
 ): Promise<void> => {
   try {
     const { conversationId } = req.params;
+    const userId = req.user?.id || req.user?.userId;
+
     const conversation = await messageService.getConversationById(conversationId as string);
 
     if (!conversation) {
@@ -100,6 +103,20 @@ export const getConversation = async (
         message: 'Conversation not found',
       });
       return;
+    }
+
+    if (userId) {
+      const authorized = await messageService.isUserAuthorizedForConversation(
+        conversationId as string,
+        userId
+      );
+      if (!authorized) {
+        res.status(403).json({
+          status: 'fail',
+          message: 'Access denied to this conversation',
+        });
+        return;
+      }
     }
 
     res.status(200).json({
@@ -125,7 +142,31 @@ export const getMessages = async (
 ): Promise<void> => {
   try {
     const { conversationId } = req.params;
+    const userId = req.user?.id || req.user?.userId;
     const limit = parseInt(req.query.limit as string, 10) || 50;
+
+    const conversation = await messageService.getConversationById(conversationId as string);
+    if (!conversation) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'Conversation not found',
+      });
+      return;
+    }
+
+    if (userId) {
+      const authorized = await messageService.isUserAuthorizedForConversation(
+        conversationId as string,
+        userId
+      );
+      if (!authorized) {
+        res.status(403).json({
+          status: 'fail',
+          message: 'Access denied to this conversation',
+        });
+        return;
+      }
+    }
 
     const messages = await messageService.getMessages(conversationId as string, limit);
 
@@ -159,6 +200,27 @@ export const sendMessage = async (
       res.status(401).json({
         status: 'fail',
         message: 'Unauthorized',
+      });
+      return;
+    }
+
+    const conversation = await messageService.getConversationById(conversationId as string);
+    if (!conversation) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'Conversation not found',
+      });
+      return;
+    }
+
+    const authorized = await messageService.isUserAuthorizedForConversation(
+      conversationId as string,
+      senderId
+    );
+    if (!authorized) {
+      res.status(403).json({
+        status: 'fail',
+        message: 'Access denied to this conversation',
       });
       return;
     }

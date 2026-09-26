@@ -1,7 +1,10 @@
 import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
+import { OAuth2Client } from 'google-auth-library';
 import logger from '../config/logger.js';
 import { authService } from '../services/authService.js';
+
+const googleOAuthClient = new OAuth2Client();
 
 // =====================================================
 // OTP
@@ -86,7 +89,7 @@ export const verifyOtp = async (
         {
           fullName:
             fullName ||
-            'Verified User',
+            'Scholar',
 
           username:
             username || null,
@@ -283,67 +286,87 @@ export const googleAuth = async (
   req: AuthenticatedRequest,
   res: Response
 ): Promise<void> => {
-  const {
-    email,
-    fullName,
-    username,
-  } = req.body;
+  const { idToken } = req.body;
 
-  if (!email) {
+  if (!idToken) {
     res.status(400).json({
       status: 'fail',
-      message:
-        'Email required from Google Auth payload',
+      message: 'Google ID token required',
     });
-
     return;
   }
 
-  let user =
-    await authService.findUser(
-      email
-    );
-
-  if (!user) {
-    user =
-      await authService.saveUser(
-        email,
-        {
-          fullName:
-            fullName ||
-            'Google User',
-
-          username:
-            username || null,
-
-          email,
-
-          phoneNumber: null,
-
-          password: '',
-        }
-      );
+  const clientId = process.env.GOOGLE_WEB_CLIENT_ID;
+  if (!clientId) {
+    logger.error('[GOOGLE AUTH] GOOGLE_WEB_CLIENT_ID environment variable is missing.');
+    res.status(500).json({
+      status: 'error',
+      message: 'Server Google authentication configuration error',
+    });
+    return;
   }
 
-  const tokens =
-    await authService.generateAuthTokens(
-      {
-        id: user.id,
-        email:
-          user.email,
-        phoneNumber:
-          user.phoneNumber,
-      }
-    );
+  let payload;
+  try {
+    const ticket = await googleOAuthClient.verifyIdToken({
+      idToken,
+      audience: clientId,
+    });
+    payload = ticket.getPayload();
+  } catch (error: any) {
+    logger.warn(`[GOOGLE AUTH] Token verification failed: ${error?.message || error}`);
+    res.status(401).json({
+      status: 'fail',
+      message: 'Invalid or expired Google authentication token',
+    });
+    return;
+  }
 
-  logger.info(
-    `[GOOGLE AUTH] Successful authentication for: ${email}`
-  );
+  if (!payload || !payload.email) {
+    res.status(401).json({
+      status: 'fail',
+      message: 'Google token does not contain a verified email identity',
+    });
+    return;
+  }
+
+  const { sub, email, name, picture } = payload;
+  const userEmail = email as string;
+
+  let user = await authService.findUser(userEmail);
+
+  if (!user) {
+    const emailPrefix = userEmail.split('@')[0] || 'user';
+    const uniqueUsername = `${emailPrefix.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Math.floor(1000 + Math.random() * 9000)}`;
+
+    user = await authService.saveUser(userEmail, {
+      fullName: name || 'Google User',
+      username: uniqueUsername,
+      email: userEmail,
+      phoneNumber: null,
+      photoURL: picture || null,
+      password: '',
+    });
+  } else if (picture && !user.photoURL) {
+    try {
+      await authService.updateUserProfile(user.id, { photoURL: picture });
+      user.photoURL = picture;
+    } catch (e) {
+      logger.warn(`[GOOGLE AUTH] Failed to update user photoURL: ${e}`);
+    }
+  }
+
+  const tokens = await authService.generateAuthTokens({
+    id: user.id,
+    email: user.email || '',
+    phoneNumber: user.phoneNumber,
+  });
+
+  logger.info(`[GOOGLE AUTH] Successful verification & login for Google user (${sub}): ${email}`);
 
   res.status(200).json({
     status: 'success',
-    message:
-      'Google authentication successful',
+    message: 'Google authentication successful',
     tokens,
     user,
   });
@@ -664,6 +687,9 @@ export const updateProfile =
         email,
         bio,
         photoURL,
+        facultyId,
+        departmentId,
+        level,
       } = req.body;
 
       const updateData: any =
@@ -708,6 +734,26 @@ export const updateProfile =
       ) {
         updateData.photoURL =
           photoURL;
+      }
+
+      if (
+        facultyId !== undefined
+      ) {
+        updateData.facultyId =
+          facultyId;
+      }
+
+      if (
+        departmentId !== undefined
+      ) {
+        updateData.departmentId =
+          departmentId;
+      }
+
+      if (
+        level !== undefined
+      ) {
+        updateData.level = level;
       }
 
       const updatedUser =
@@ -1172,4 +1218,55 @@ export const logout = async (
     message:
       'Logged out successfully',
   });
+};
+
+// =====================================================
+// RECOMMENDED COURSES
+// =====================================================
+
+export const getRecommendedCourses = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  const userId =
+    req.user?.id ||
+    req.user?.userId;
+
+  if (!userId) {
+    res.status(401).json({
+      status: 'fail',
+      message: 'Unauthorized',
+    });
+    return;
+  }
+
+  try {
+    const semester =
+      typeof req.query.semester === 'string'
+        ? req.query.semester
+        : undefined;
+
+    logger.info(
+      `[RECOMMENDED COURSES] Fetching for user ID: ${userId}, semester: ${semester || 'all'}`
+    );
+
+    const result = await authService.getRecommendedCourses(
+      userId,
+      semester
+    );
+
+    res.status(200).json({
+      status: 'success',
+      ...result,
+    });
+  } catch (error: any) {
+    logger.error(
+      `[RECOMMENDED COURSES ERROR]: ${error.message || error}`
+    );
+
+    res.status(500).json({
+      status: 'fail',
+      message: 'Failed to fetch recommended courses',
+    });
+  }
 };

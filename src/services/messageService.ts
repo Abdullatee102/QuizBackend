@@ -1,4 +1,4 @@
-import { eq, desc, asc, and, sql } from 'drizzle-orm';
+import { eq, desc, asc, and, sql, inArray } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import {
   conversationsTable,
@@ -33,10 +33,18 @@ export const messageService = {
         eq(conversationsTable.departmentId, targetId as any)
       );
     } else if (type === 'level' && level) {
-      condition = and(
-        eq(conversationsTable.type, 'level'),
-        eq(conversationsTable.level, level)
-      );
+      if (targetId) {
+        condition = and(
+          eq(conversationsTable.type, 'level'),
+          eq(conversationsTable.departmentId, targetId as any),
+          eq(conversationsTable.level, level)
+        );
+      } else {
+        condition = and(
+          eq(conversationsTable.type, 'level'),
+          eq(conversationsTable.level, level)
+        );
+      }
     } else {
       condition = and(
         eq(conversationsTable.type, type),
@@ -60,7 +68,7 @@ export const messageService = {
         title,
         code: code || null,
         facultyId: type === 'faculty' ? (targetId as any) : null,
-        departmentId: type === 'department' ? (targetId as any) : null,
+        departmentId: (type === 'department' || type === 'level') ? (targetId as any) : null,
         level: type === 'level' ? level : null,
       })
       .returning();
@@ -71,7 +79,7 @@ export const messageService = {
   // =====================================================
   // LIST ACADEMIC CHANNELS (FACULTY, DEPARTMENT, LEVEL)
   // =====================================================
-  listAcademicChannels: async () => {
+  listAcademicChannels: async (departmentId?: string) => {
     // 1. Faculties
     const faculties = await db
       .select({
@@ -81,7 +89,7 @@ export const messageService = {
       })
       .from(facultiesTable);
 
-    // 2. Sample key departments
+    // 2. Departments
     const departments = await db
       .select({
         id: departmentsTable.id,
@@ -90,6 +98,11 @@ export const messageService = {
         facultyId: departmentsTable.facultyId,
       })
       .from(departmentsTable);
+
+    let targetDept = null;
+    if (departmentId) {
+      targetDept = departments.find((d) => d.id === departmentId) || null;
+    }
 
     // 3. Levels
     const levels = [100, 200, 300, 400, 500];
@@ -113,9 +126,12 @@ export const messageService = {
       levels: levels.map((lvl) => ({
         type: 'level' as const,
         level: lvl,
-        title: `${lvl} Level Scholars`,
-        code: `${lvl}L`,
-        description: `General discussion & study group for ${lvl} level students`,
+        departmentId: targetDept ? targetDept.id : undefined,
+        title: targetDept ? `${lvl} Level — ${targetDept.name}` : `${lvl} Level Scholars`,
+        code: targetDept ? `${targetDept.code} ${lvl}L` : `${lvl}L`,
+        description: targetDept
+          ? `Discussion & study group for ${lvl} level ${targetDept.name} students`
+          : `General discussion & study group for ${lvl} level students`,
       })),
     };
   },
@@ -123,7 +139,25 @@ export const messageService = {
   // =====================================================
   // LIST ACTIVE CONVERSATIONS (RECENT CHATS)
   // =====================================================
-  listRecentConversations: async (_userId?: string | number) => {
+  listRecentConversations: async (userId?: string | number) => {
+    if (!userId) {
+      return [];
+    }
+
+    // Find conversation IDs where this user has participated/posted messages
+    const userConvRows = await db
+      .selectDistinct({
+        conversationId: messagesTable.conversationId,
+      })
+      .from(messagesTable)
+      .where(eq(messagesTable.senderId, userId as any));
+
+    if (userConvRows.length === 0) {
+      return [];
+    }
+
+    const userConvIds = userConvRows.map((r) => r.conversationId);
+
     const conversations = await db
       .select({
         id: conversationsTable.id,
@@ -137,6 +171,7 @@ export const messageService = {
         updatedAt: conversationsTable.updatedAt,
       })
       .from(conversationsTable)
+      .where(inArray(conversationsTable.id, userConvIds))
       .orderBy(desc(conversationsTable.updatedAt))
       .limit(30);
 
@@ -186,6 +221,62 @@ export const messageService = {
       .where(eq(conversationsTable.id, conversationId as any));
 
     return conv || null;
+  },
+
+  // =====================================================
+  // CHECK AUTHORIZATION FOR CONVERSATION
+  // =====================================================
+  isUserAuthorizedForConversation: async (
+    conversationId: string,
+    userId: string | number
+  ): Promise<boolean> => {
+    const [conv] = await db
+      .select({
+        id: conversationsTable.id,
+        type: conversationsTable.type,
+        title: conversationsTable.title,
+        code: conversationsTable.code,
+      })
+      .from(conversationsTable)
+      .where(eq(conversationsTable.id, conversationId as any));
+
+    if (!conv) {
+      return false;
+    }
+
+    // Academic channels are open to the student community
+    const isAcademic = ['faculty', 'department', 'level'].includes(conv.type);
+    if (isAcademic) {
+      return true;
+    }
+
+    // For direct/private conversations, verify the user is a participant
+    // 1. User has sent messages in this conversation
+    const [userMessage] = await db
+      .select({ id: messagesTable.id })
+      .from(messagesTable)
+      .where(
+        and(
+          eq(messagesTable.conversationId, conversationId as any),
+          eq(messagesTable.senderId, userId as any)
+        )
+      )
+      .limit(1);
+
+    if (userMessage) {
+      return true;
+    }
+
+    // 2. User ID is explicitly referenced in code or title metadata
+    const strUserId = String(userId);
+    if (
+      (conv.code && conv.code.includes(strUserId)) ||
+      (conv.title && conv.title.includes(strUserId))
+    ) {
+      return true;
+    }
+
+    return false;
   },
 
   // =====================================================
@@ -249,9 +340,23 @@ export const messageService = {
       .from(usersTable)
       .where(eq(usersTable.id, senderId as any));
 
-    return {
+    const fullMessage = {
       ...createdMsg,
       sender: sender || null,
     };
+
+    // Emit real-time message event via socket
+    try {
+      const { socketService } = await import('../socket/index.js');
+      socketService.emitToRoom(
+        `conversation:${conversationId}`,
+        'new_message',
+        fullMessage
+      );
+    } catch {
+      // Non-blocking if socket is not active
+    }
+
+    return fullMessage;
   },
 };

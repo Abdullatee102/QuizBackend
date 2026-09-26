@@ -19,6 +19,7 @@ import {
   changePassword,
   getAchievements,
   unlockAchievement,
+  getRecommendedCourses,
 } from '../controllers/auth.controller.js';
 
 import {
@@ -173,6 +174,12 @@ router.patch(
   protect,
   validate(updateProfileSchema),
   updateProfile
+);
+
+router.get(
+  '/recommended-courses',
+  protect,
+  getRecommendedCourses
 );
 
 // =====================================================

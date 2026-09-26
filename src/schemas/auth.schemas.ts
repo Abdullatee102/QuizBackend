@@ -384,8 +384,8 @@ export const updateProfileSchema = z.object({
     bio: z
       .string()
       .max(
-        300,
-        'Bio must be under 300 characters'
+        50,
+        'Bio must be under 50 characters'
       )
       .optional()
       .or(z.literal('')),
@@ -397,6 +397,29 @@ export const updateProfileSchema = z.object({
       )
       .optional()
       .or(z.literal('')),
+
+    facultyId: z
+      .string()
+      .uuid('Invalid faculty ID format')
+      .nullable()
+      .optional(),
+
+    departmentId: z
+      .string()
+      .uuid('Invalid department ID format')
+      .nullable()
+      .optional(),
+
+    level: z
+      .union([
+        z.literal(100),
+        z.literal(200),
+        z.literal(300),
+        z.literal(400),
+        z.literal(500),
+      ])
+      .nullable()
+      .optional(),
   }),
 });
 

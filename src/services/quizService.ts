@@ -48,8 +48,22 @@ interface GradedQuestion {
    *
    * Example:
    *   75 = 75%
+   * Maximum possible points for this question (10).
+   */
+  maxScore: number;
+
+  /**
+   * Theory similarity or question percentage (0 - 100).
    */
   similarity?: number;
+  percentage?: number;
+
+  /**
+   * Structured concept breakdown for theory answers.
+   */
+  matchedConcepts?: string[];
+  missingConcepts?: string[];
+  feedback?: string;
 }
 
 interface QuizGradingResult {
@@ -298,6 +312,9 @@ const gradeTheoryAnswer = (
   isCorrect: boolean;
   score: number;
   similarity: number;
+  matchedConcepts: string[];
+  missingConcepts: string[];
+  feedback: string;
 } => {
   const normalizedStudent =
     normalizeAnswer(studentAnswer);
@@ -314,6 +331,9 @@ const gradeTheoryAnswer = (
       isCorrect: false,
       score: 0,
       similarity: 0,
+      matchedConcepts: [],
+      missingConcepts: (gradingPoints || []).map((p) => p.concept),
+      feedback: 'No answer was provided.',
     };
   }
 
@@ -329,6 +349,9 @@ const gradeTheoryAnswer = (
       isCorrect: true,
       score: 1,
       similarity: 100,
+      matchedConcepts: (gradingPoints || []).map((p) => p.concept),
+      missingConcepts: [],
+      feedback: 'Excellent answer! You matched the expected solution accurately.',
     };
   }
 
@@ -346,6 +369,9 @@ const gradeTheoryAnswer = (
       isCorrect: true,
       score: 1,
       similarity: 100,
+      matchedConcepts: (gradingPoints || []).map((p) => p.concept),
+      missingConcepts: [],
+      feedback: 'Great response! You covered the core expected concept comprehensively.',
     };
   }
 
@@ -368,19 +394,26 @@ const gradeTheoryAnswer = (
         similarity.toFixed(4)
       );
 
+    const isCorrect =
+      similarity >=
+      THEORY_CORRECT_THRESHOLD;
+
+    const simPercent =
+      Number(
+        (
+          similarity * 100
+        ).toFixed(2)
+      );
+
     return {
-      isCorrect:
-        similarity >=
-        THEORY_CORRECT_THRESHOLD,
-
+      isCorrect,
       score,
-
-      similarity:
-        Number(
-          (
-            similarity * 100
-          ).toFixed(2)
-        ),
+      similarity: simPercent,
+      matchedConcepts: isCorrect ? ['Core explanation'] : [],
+      missingConcepts: isCorrect ? [] : ['Detailed elaboration'],
+      feedback: isCorrect
+        ? 'Well explained!'
+        : 'Your explanation could be more detailed and aligned with key points.',
     };
   }
 
@@ -390,6 +423,8 @@ const gradeTheoryAnswer = (
 
   let totalWeight = 0;
   let earnedWeight = 0;
+  const matchedConcepts: string[] = [];
+  const missingConcepts: string[] = [];
 
   for (const point of gradingPoints) {
     const weight =
@@ -409,6 +444,12 @@ const gradeTheoryAnswer = (
 
     earnedWeight +=
       weight * matched;
+    if (matched > 0) {
+      matchedConcepts.push(point.concept);
+      earnedWeight += weight * matched;
+    } else {
+      missingConcepts.push(point.concept);
+    }
   }
 
   // ===================================================
@@ -420,6 +461,9 @@ const gradeTheoryAnswer = (
       isCorrect: false,
       score: 0,
       similarity: 0,
+      matchedConcepts: [],
+      missingConcepts: [],
+      feedback: 'Grading rubric unavailable.',
     };
   }
 
@@ -435,19 +479,35 @@ const gradeTheoryAnswer = (
       ).toFixed(4)
     );
 
+  const similarity =
+    Number(
+      (
+        score * 100
+      ).toFixed(2)
+    );
+
+  const isCorrect =
+    score >=
+    THEORY_CORRECT_THRESHOLD;
+
+  let feedback = '';
+  if (score >= 1) {
+    feedback = 'Outstanding! You correctly addressed all key concepts.';
+  } else if (score >= 0.75) {
+    feedback = `Great work! You captured ${matchedConcepts.length} key concept(s).`;
+  } else if (matchedConcepts.length > 0) {
+    feedback = `Partially correct. You covered: "${matchedConcepts.join(', ')}", but missed: "${missingConcepts.join(', ')}".`;
+  } else {
+    feedback = `Your answer missed the expected key concepts: "${missingConcepts.join(', ')}".`;
+  }
+
   return {
-    isCorrect:
-      score >=
-      THEORY_CORRECT_THRESHOLD,
-
+    isCorrect,
     score,
-
-    similarity:
-      Number(
-        (
-          score * 100
-        ).toFixed(2)
-      ),
+    similarity,
+    matchedConcepts,
+    missingConcepts,
+    feedback,
   };
 };
 
@@ -711,6 +771,15 @@ export const quizService = {
                 isCorrect
                   ? POINTS_PER_QUESTION
                   : 0,
+
+              maxScore: POINTS_PER_QUESTION,
+
+              percentage:
+                isCorrect ? 100 : 0,
+
+              feedback: isCorrect
+                ? 'Correct answer!'
+                : 'Incorrect answer.',
             };
           }
 
@@ -760,8 +829,22 @@ export const quizService = {
             score:
               questionScore,
 
+            maxScore: POINTS_PER_QUESTION,
+
             similarity:
               theoryResult.similarity,
+
+            percentage:
+              theoryResult.similarity,
+
+            matchedConcepts:
+              theoryResult.matchedConcepts,
+
+            missingConcepts:
+              theoryResult.missingConcepts,
+
+            feedback:
+              theoryResult.feedback,
           };
         }
       );

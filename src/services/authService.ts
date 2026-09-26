@@ -8,6 +8,9 @@ import {
   refreshTokensTable,
   achievementsTable,
   coursesTable,
+  facultiesTable,
+  departmentsTable,
+  questionsTable,
 } from '../db/schema.js';
 
 import {
@@ -402,8 +405,37 @@ export const authService = {
           )
         );
 
+    let faculty = null;
+    if (user.facultyId) {
+      const [fac] = await db
+        .select({
+          id: facultiesTable.id,
+          name: facultiesTable.name,
+          code: facultiesTable.code,
+        })
+        .from(facultiesTable)
+        .where(eq(facultiesTable.id, user.facultyId));
+      faculty = fac || null;
+    }
+
+    let department = null;
+    if (user.departmentId) {
+      const [dept] = await db
+        .select({
+          id: departmentsTable.id,
+          name: departmentsTable.name,
+          code: departmentsTable.code,
+          facultyId: departmentsTable.facultyId,
+        })
+        .from(departmentsTable)
+        .where(eq(departmentsTable.id, user.departmentId));
+      department = dept || null;
+    }
+
     return {
       ...user,
+      faculty,
+      department,
       ...stats,
     };
   },
@@ -551,171 +583,323 @@ export const authService = {
     userId: string | number,
     updateData: any
   ): Promise<any> => {
+    const dataToUpdate: any = {};
 
-    const dataToUpdate: any =
-      {};
+    const [currentUser] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, userId as any));
 
-    if (
-      updateData.fullName !==
-      undefined
-    ) {
-      dataToUpdate.fullName =
-        updateData.fullName;
+    if (!currentUser) {
+      throw new Error('User not found.');
     }
 
-    if (
-      updateData.bio !==
-      undefined
-    ) {
-      dataToUpdate.bio =
-        updateData.bio;
+    if (updateData.fullName !== undefined) {
+      dataToUpdate.fullName = updateData.fullName;
     }
 
-    if (
-      updateData.photoURL !==
-      undefined
-    ) {
-      dataToUpdate.photoURL =
-        updateData.photoURL;
+    if (updateData.bio !== undefined) {
+      dataToUpdate.bio = updateData.bio;
     }
 
-    if (
-      updateData.username !==
-      undefined
-    ) {
-
-      const cleanUsername =
-        updateData.username
-          .trim()
-          .toLowerCase();
-
-      const [
-        existingUsername,
-      ] = await db
-        .select()
-        .from(usersTable)
-        .where(
-          and(
-            eq(
-              usersTable.username,
-              cleanUsername
-            ),
-
-            sql`${usersTable.id} != ${userId}`
-          )
-        );
-
-      if (existingUsername) {
-        throw new Error(
-          'This username is already taken by another account.'
-        );
-      }
-
-      dataToUpdate.username =
-        cleanUsername;
+    if (updateData.photoURL !== undefined) {
+      dataToUpdate.photoURL = updateData.photoURL;
     }
 
-    if (
-      updateData.email !==
-      undefined
-    ) {
+    if (updateData.username !== undefined) {
+      const cleanUsername = updateData.username
+        ? updateData.username.trim().toLowerCase()
+        : null;
 
-      const cleanEmail =
-        updateData.email
-          ? updateData.email
-              .trim()
-              .toLowerCase()
-          : null;
-
-      if (cleanEmail) {
-
-        const [
-          existingEmail,
-        ] = await db
+      if (cleanUsername) {
+        const [existingUsername] = await db
           .select()
           .from(usersTable)
           .where(
             and(
-              eq(
-                usersTable.email,
-                cleanEmail
-              ),
+              eq(usersTable.username, cleanUsername),
+              sql`${usersTable.id} != ${userId}`
+            )
+          );
 
+        if (existingUsername) {
+          throw new Error('This username is already taken by another account.');
+        }
+      }
+
+      dataToUpdate.username = cleanUsername;
+    }
+
+    if (updateData.email !== undefined) {
+      const cleanEmail = updateData.email
+        ? updateData.email.trim().toLowerCase()
+        : null;
+
+      if (cleanEmail) {
+        const [existingEmail] = await db
+          .select()
+          .from(usersTable)
+          .where(
+            and(
+              eq(usersTable.email, cleanEmail),
               sql`${usersTable.id} != ${userId}`
             )
           );
 
         if (existingEmail) {
-          throw new Error(
-            'This email address is already registered to another account.'
-          );
+          throw new Error('This email address is already registered to another account.');
         }
       }
 
-      dataToUpdate.email =
-        cleanEmail;
+      dataToUpdate.email = cleanEmail;
     }
 
-    if (
-      updateData.phoneNumber !==
-      undefined
-    ) {
-
-      const cleanPhone =
-        updateData.phoneNumber
-          ? updateData.phoneNumber
-              .trim()
-          : null;
+    if (updateData.phoneNumber !== undefined) {
+      const cleanPhone = updateData.phoneNumber
+        ? updateData.phoneNumber.trim()
+        : null;
 
       if (cleanPhone) {
-
-        const [
-          existingPhone,
-        ] = await db
+        const [existingPhone] = await db
           .select()
           .from(usersTable)
           .where(
             and(
-              eq(
-                usersTable.phoneNumber,
-                cleanPhone
-              ),
-
+              eq(usersTable.phoneNumber, cleanPhone),
               sql`${usersTable.id} != ${userId}`
             )
           );
 
         if (existingPhone) {
-          throw new Error(
-            'This phone number is already registered to another account.'
-          );
+          throw new Error('This phone number is already registered to another account.');
         }
       }
 
-      dataToUpdate.phoneNumber =
-        cleanPhone;
+      dataToUpdate.phoneNumber = cleanPhone;
     }
 
-    if (
-      Object.keys(dataToUpdate)
-        .length === 0
+    // ===================================================
+    // ACADEMIC VALIDATION & UPDATE
+    // ===================================================
+
+    if (updateData.level !== undefined) {
+      if (
+        updateData.level !== null &&
+        ![100, 200, 300, 400, 500].includes(updateData.level)
+      ) {
+        throw new Error('Invalid academic level. Must be 100, 200, 300, 400, or 500.');
+      }
+      dataToUpdate.level = updateData.level;
+    }
+
+    const nextFacultyId =
+      updateData.facultyId !== undefined
+        ? updateData.facultyId
+        : currentUser.facultyId;
+
+    if (updateData.facultyId !== undefined) {
+      if (updateData.facultyId !== null) {
+        const [fac] = await db
+          .select()
+          .from(facultiesTable)
+          .where(eq(facultiesTable.id, updateData.facultyId));
+        if (!fac) {
+          throw new Error('Specified faculty does not exist.');
+        }
+      }
+      dataToUpdate.facultyId = updateData.facultyId;
+    }
+
+    if (updateData.departmentId !== undefined) {
+      if (updateData.departmentId !== null) {
+        const [dept] = await db
+          .select()
+          .from(departmentsTable)
+          .where(eq(departmentsTable.id, updateData.departmentId));
+        if (!dept) {
+          throw new Error('Specified department does not exist.');
+        }
+
+        if (nextFacultyId && dept.facultyId !== nextFacultyId) {
+          throw new Error('Selected department does not belong to the selected faculty.');
+        }
+
+        // Auto-assign faculty if not previously set or supplied
+        if (!nextFacultyId) {
+          dataToUpdate.facultyId = dept.facultyId;
+        }
+      }
+      dataToUpdate.departmentId = updateData.departmentId;
+    } else if (
+      updateData.facultyId !== undefined &&
+      updateData.facultyId !== null &&
+      currentUser.departmentId
     ) {
+      // User changed faculty without supplying departmentId: ensure existing department matches
+      const [dept] = await db
+        .select()
+        .from(departmentsTable)
+        .where(eq(departmentsTable.id, currentUser.departmentId));
+      if (dept && dept.facultyId !== updateData.facultyId) {
+        throw new Error(
+          'Current department does not belong to the newly selected faculty. Please select a valid department for this faculty.'
+        );
+      }
+    }
+
+    if (Object.keys(dataToUpdate).length === 0) {
       return null;
     }
 
-    const [updatedUser] =
-      await db
-        .update(usersTable)
-        .set(dataToUpdate)
-        .where(
-          eq(
-            usersTable.id,
-            userId as any
-          )
-        )
-        .returning();
+    const [updatedUser] = await db
+      .update(usersTable)
+      .set(dataToUpdate)
+      .where(eq(usersTable.id, userId as any))
+      .returning();
 
-    return updatedUser || null;
+    if (!updatedUser) {
+      return null;
+    }
+
+    // Populate faculty and department
+    let faculty = null;
+    if (updatedUser.facultyId) {
+      const [fac] = await db
+        .select({
+          id: facultiesTable.id,
+          name: facultiesTable.name,
+          code: facultiesTable.code,
+        })
+        .from(facultiesTable)
+        .where(eq(facultiesTable.id, updatedUser.facultyId));
+      faculty = fac || null;
+    }
+
+    let department = null;
+    if (updatedUser.departmentId) {
+      const [dept] = await db
+        .select({
+          id: departmentsTable.id,
+          name: departmentsTable.name,
+          code: departmentsTable.code,
+          facultyId: departmentsTable.facultyId,
+        })
+        .from(departmentsTable)
+        .where(eq(departmentsTable.id, updatedUser.departmentId));
+      department = dept || null;
+    }
+
+    return {
+      ...updatedUser,
+      faculty,
+      department,
+    };
+  },
+
+  // ===================================================
+  // RECOMMENDED COURSES
+  // ===================================================
+
+  getRecommendedCourses: async (
+    userId: string | number,
+    semester?: string
+  ): Promise<{
+    hasAcademicProfile: boolean;
+    faculty?: any;
+    department?: any;
+    level?: number | null;
+    count: number;
+    data: any[];
+    message?: string;
+  }> => {
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, userId as any));
+
+    if (!user || !user.departmentId || !user.level) {
+      return {
+        hasAcademicProfile: false,
+        count: 0,
+        data: [],
+        message:
+          'Please complete your academic profile (faculty, department, and level) in settings to receive personalized course recommendations.',
+      };
+    }
+
+    const conditions = [
+      eq(coursesTable.departmentId, user.departmentId),
+      eq(coursesTable.level, user.level),
+    ];
+
+    if (semester) {
+      conditions.push(eq(coursesTable.semester, semester));
+    }
+
+    const courses = await db
+      .select()
+      .from(coursesTable)
+      .where(and(...conditions));
+
+    // Enrich courses with question counts in a single efficient query
+    const questionStats = await db
+      .select({
+        courseId: questionsTable.courseId,
+        type: questionsTable.type,
+        count: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(questionsTable)
+      .groupBy(questionsTable.courseId, questionsTable.type);
+
+    const statsMap = new Map<string, { cbt: number; theory: number }>();
+    for (const stat of questionStats) {
+      if (!statsMap.has(stat.courseId)) {
+        statsMap.set(stat.courseId, { cbt: 0, theory: 0 });
+      }
+      const entry = statsMap.get(stat.courseId)!;
+      if (stat.type === 'theory') {
+        entry.theory = stat.count;
+      } else {
+        entry.cbt = stat.count;
+      }
+    }
+
+    const enriched = courses.map((c) => {
+      const stats = statsMap.get(c.id) || { cbt: 0, theory: 0 };
+      return {
+        ...c,
+        cbtQuestionsCount: stats.cbt,
+        theoryQuestionsCount: stats.theory,
+        totalQuestionsCount: stats.cbt + stats.theory,
+      };
+    });
+
+    let department = null;
+    if (user.departmentId) {
+      const [dept] = await db
+        .select()
+        .from(departmentsTable)
+        .where(eq(departmentsTable.id, user.departmentId));
+      department = dept || null;
+    }
+
+    let faculty = null;
+    if (user.facultyId) {
+      const [fac] = await db
+        .select()
+        .from(facultiesTable)
+        .where(eq(facultiesTable.id, user.facultyId));
+      faculty = fac || null;
+    }
+
+    return {
+      hasAcademicProfile: true,
+      faculty,
+      department,
+      level: user.level,
+      count: enriched.length,
+      data: enriched,
+    };
   },
 
     // ===================================================
@@ -1580,6 +1764,7 @@ export const authService = {
       id: string;
       email?: string | null;
       phoneNumber?: string | null;
+      role?: string;
     }) => {
 
       const accessToken =
