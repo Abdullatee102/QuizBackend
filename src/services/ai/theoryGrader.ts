@@ -1,21 +1,22 @@
 /**
  * AI Theory Grading Service Abstraction
- *
- * Future AI integrations (e.g. Gemini API / LLM grading) will be plugged into
- * this service layer. Currently provides deterministic grading fallback contracts
- * to ensure 100% testability and reliability without external network dependency.
  */
+import type { GradingMethod, TheoryGradingStatus } from './types.js';
 
 export interface TheoryGradingRequest {
-  questionId: string;
-  question: string;
+  questionId?: string | undefined;
+  question?: string | undefined;
+  questionText?: string | undefined;
+  questionType?: string | undefined;
   studentAnswer: string;
-  correctAnswer: string;
+  correctAnswer?: string | undefined;
+  referenceAnswer?: string | undefined;
+  maxScore?: number | undefined;
   gradingPoints?: Array<{
     concept: string;
     weight: number;
-    aliases?: string[];
-  }>;
+    aliases?: string[] | undefined;
+  }> | undefined;
 }
 
 export interface TheoryGradingResponse {
@@ -26,25 +27,104 @@ export interface TheoryGradingResponse {
   matchedConcepts: string[];
   missingConcepts: string[];
   feedback: string;
+  status: TheoryGradingStatus;
+  gradingMethod: GradingMethod;
+  strengths: string[];
+  missingPoints: string[];
+  gradingNotes: string;
+}
+
+function matchesConcept(studentAnswer: string, concept: string, aliases: string[] = []): boolean {
+  const normStudent = studentAnswer
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normStudent) return false;
+
+  const studentTokens = new Set(normStudent.split(' ').filter((w) => w.length > 1));
+  const candidates = [concept, ...aliases];
+
+  for (const candidate of candidates) {
+    const normCand = candidate
+      .toLowerCase()
+      .normalize('NFKC')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!normCand) continue;
+    if (normStudent.includes(normCand)) return true;
+
+    const candTokens = normCand.split(' ').filter((w) => w.length > 1);
+    if (candTokens.length === 0) continue;
+
+    const matchedCount = candTokens.filter((token) => studentTokens.has(token)).length;
+    const matchRatio = matchedCount / candTokens.length;
+
+    if (matchRatio >= 0.5 || (matchedCount >= 2 && candTokens.length >= 3)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function evaluateTheoryDeterministically(
+  request: TheoryGradingRequest
+): TheoryGradingResponse {
+  const student = (request.studentAnswer || '').trim().toLowerCase();
+  const maxScore = request.maxScore || 10;
+  const hasAnswer = student.length > 0;
+
+  let matched: string[] = [];
+  let missing: string[] = [];
+
+  if (request.gradingPoints && request.gradingPoints.length > 0) {
+    for (const point of request.gradingPoints) {
+      if (matchesConcept(student, point.concept, point.aliases || [])) {
+        matched.push(point.concept);
+      } else {
+        missing.push(point.concept);
+      }
+    }
+  }
+
+  const scoreRatio =
+    request.gradingPoints && request.gradingPoints.length > 0
+      ? matched.length / request.gradingPoints.length
+      : hasAnswer
+      ? 1
+      : 0;
+
+  const score = Number((scoreRatio * maxScore).toFixed(2));
+  const percentage = Number((scoreRatio * 100).toFixed(2));
+  const isCorrect = scoreRatio >= 0.7;
+
+  return {
+    score,
+    maxScore,
+    percentage,
+    isCorrect,
+    matchedConcepts: matched,
+    missingConcepts: missing,
+    strengths: matched, gradingNotes: '',
+    missingPoints: missing,
+    status: 'graded',
+    gradingMethod: 'rubric',
+    feedback: hasAnswer
+      ? matched.length > 0
+        ? `Accurately matched: ${matched.join(', ')}.`
+        : 'Answer submitted. Review course materials for key concept details.'
+      : 'No answer provided.',
+  };
 }
 
 export class TheoryGraderAI {
-  /**
-   * Evaluates student theory answer using deterministic semantic heuristics
-   * or future LLM provider.
-   */
   async gradeAnswer(request: TheoryGradingRequest): Promise<TheoryGradingResponse> {
-    // Stub implementation returning standardized contract
-    const hasAnswer = request.studentAnswer.trim().length > 0;
-    return {
-      score: hasAnswer ? 10 : 0,
-      maxScore: 10,
-      percentage: hasAnswer ? 100 : 0,
-      isCorrect: hasAnswer,
-      matchedConcepts: request.gradingPoints ? request.gradingPoints.map((p) => p.concept) : [],
-      missingConcepts: [],
-      feedback: hasAnswer ? 'Answer evaluated.' : 'No answer provided.',
-    };
+    return evaluateTheoryDeterministically(request);
   }
 }
 

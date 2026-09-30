@@ -31,6 +31,10 @@ import {
 } from '../controllers/quiz.controller.js';
 
 import { validate } from '../middlewares/validate.middleware.js';
+import {
+  otpRateLimiter,
+  authRateLimiter,
+} from '../middlewares/rateLimit.middleware.js';
 
 import {
   protect,
@@ -62,18 +66,21 @@ const router = Router();
 
 router.post(
   '/signup',
+  authRateLimiter,
   validate(signUpSchema),
   signUp
 );
 
 router.post(
   '/login',
+  authRateLimiter,
   validate(loginSchema),
   login
 );
 
 router.post(
   '/google',
+  authRateLimiter,
   googleAuth
 );
 
@@ -85,24 +92,28 @@ router.post(
 
 router.post(
   '/send-otp',
+  otpRateLimiter,
   validate(sendOtpSchema),
   sendOtp
 );
 
 router.post(
   '/verify-otp',
+  authRateLimiter,
   validate(verifyOtpSchema),
   verifyOtp
 );
 
 router.post(
   '/forgot-password',
+  otpRateLimiter,
   validate(forgotPasswordSchema),
   forgotPassword
 );
 
 router.post(
   '/reset-password',
+  authRateLimiter,
   validate(resetPasswordSchema),
   resetPassword
 );

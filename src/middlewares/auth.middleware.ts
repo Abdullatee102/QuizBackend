@@ -1,7 +1,10 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET === 'fallback-secret-key') {
+  throw new Error('[FATAL] JWT_SECRET environment variable is missing or insecure.');
+}
 
 // Define the exact shape of the user payload attached to the request
 export interface UserPayload {

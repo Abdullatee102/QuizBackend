@@ -6,6 +6,7 @@ import {
   getConversation,
   getMessages,
   sendMessage,
+  getUnreadConversationsCount,
 } from '../controllers/message.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { validate } from '../middlewares/validate.middleware.js';
@@ -24,6 +25,9 @@ router.post(
   validate(joinAcademicChannelSchema),
   joinAcademicChannel
 );
+
+// Unread count
+router.get('/conversations/unread-count', protect, getUnreadConversationsCount);
 
 // Conversations (Recent chats)
 router.get('/conversations', protect, getRecentConversations);

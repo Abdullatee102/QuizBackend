@@ -244,3 +244,48 @@ export const sendMessage = async (
   }
 };
 
+
+
+// =====================================================
+// UNREAD CONVERSATIONS COUNT
+// =====================================================
+
+export const getUnreadConversationsCount = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  const userId = req.user?.id || req.user?.userId;
+  if (!userId) {
+    res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    // Use the notifications table to count unread message notifications
+    const { db } = await import('../db/index.js');
+    const { notificationsTable } = await import('../db/schema.js');
+    const { eq, and } = await import('drizzle-orm');
+
+    const unreadNotifs = await db
+      .select()
+      .from(notificationsTable)
+      .where(
+        and(
+          eq(notificationsTable.userId, userId as string),
+          eq(notificationsTable.isRead, false),
+          eq(notificationsTable.type, 'message')
+        )
+      );
+
+    res.status(200).json({
+      status: 'success',
+      data: { count: unreadNotifs.length },
+    });
+  } catch (error) {
+    logger.error('[MESSAGE] Error fetching unread count: ' + error);
+    res.status(200).json({
+      status: 'success',
+      data: { count: 0 },
+    });
+  }
+};

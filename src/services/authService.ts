@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 
 import { db } from '../db/index.js';
@@ -28,16 +29,40 @@ import {
   notificationService,
 } from './notificationService.js';
 
-const JWT_SECRET =
-  process.env.JWT_SECRET ||
-  'fallback-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET === 'fallback-secret-key') {
+  throw new Error('[FATAL] JWT_SECRET environment variable is missing or insecure.');
+}
 
-const REFRESH_SECRET =
-  process.env.REFRESH_SECRET ||
-  'fallback-refresh-secret';
+const REFRESH_SECRET = process.env.REFRESH_SECRET;
+if (!REFRESH_SECRET || REFRESH_SECRET === 'fallback-refresh-secret') {
+  throw new Error('[FATAL] REFRESH_SECRET environment variable is missing or insecure.');
+}
 
-const otpStore =
-  new Map<string, string>();
+interface StoredOtpRecord {
+  hash: string;
+  expiresAt: number;
+  attempts: number;
+}
+
+const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_OTP_ATTEMPTS = 5;
+
+const otpStore = new Map<string, StoredOtpRecord>();
+
+// Periodic cleanup of expired OTP entries
+const cleanupExpiredOtps = () => {
+  const now = Date.now();
+  for (const [key, value] of otpStore.entries()) {
+    if (value.expiresAt <= now) {
+      otpStore.delete(key);
+    }
+  }
+};
+const cleanupInterval = setInterval(cleanupExpiredOtps, 5 * 60 * 1000);
+if (cleanupInterval.unref) {
+  cleanupInterval.unref();
+}
 
 const normalizeQuizType = (
   value: unknown
@@ -259,18 +284,22 @@ export const authService = {
   generateOtp: (
     identifier: string
   ): string => {
+    const normalizedId = identifier.trim().toLowerCase();
 
-    const otpCode =
-      Math.floor(
-        100000 +
-          Math.random() *
-            900000
-      ).toString();
+    // Cryptographically secure 6-digit numeric OTP
+    const otpCode = crypto.randomInt(100000, 1000000).toString();
 
-    otpStore.set(
-      identifier,
-      otpCode
-    );
+    // Store SHA-256 hash with 10-minute expiry
+    const hash = crypto
+      .createHash('sha256')
+      .update(otpCode)
+      .digest('hex');
+
+    otpStore.set(normalizedId, {
+      hash,
+      expiresAt: Date.now() + OTP_TTL_MS,
+      attempts: 0,
+    });
 
     return otpCode;
   },
@@ -279,21 +308,48 @@ export const authService = {
     identifier: string,
     inputCode: string
   ): boolean => {
+    const normalizedId = identifier.trim().toLowerCase();
+    const storedRecord = otpStore.get(normalizedId);
 
-    const storedOtp =
-      otpStore.get(identifier);
-
-    if (
-      !storedOtp ||
-      storedOtp !== inputCode
-    ) {
+    if (!storedRecord) {
       return false;
     }
 
-    otpStore.delete(
-      identifier
-    );
+    // Reject if expired
+    if (Date.now() > storedRecord.expiresAt) {
+      otpStore.delete(normalizedId);
+      return false;
+    }
 
+    // Reject if exceeded maximum attempts
+    if (storedRecord.attempts >= MAX_OTP_ATTEMPTS) {
+      otpStore.delete(normalizedId);
+      return false;
+    }
+
+    storedRecord.attempts += 1;
+
+    // Hash user-provided code using SHA-256
+    const inputHash = crypto
+      .createHash('sha256')
+      .update(inputCode.trim())
+      .digest('hex');
+
+    const inputBuf = Buffer.from(inputHash, 'hex');
+    const storedBuf = Buffer.from(storedRecord.hash, 'hex');
+
+    if (
+      inputBuf.length !== storedBuf.length ||
+      !crypto.timingSafeEqual(inputBuf, storedBuf)
+    ) {
+      if (storedRecord.attempts >= MAX_OTP_ATTEMPTS) {
+        otpStore.delete(normalizedId);
+      }
+      return false;
+    }
+
+    // Single-use: delete upon successful verification
+    otpStore.delete(normalizedId);
     return true;
   },
 
@@ -1300,245 +1356,335 @@ export const authService = {
       );
 
       // =================================================
+      // COMPREHENSIVE HISTORY METRICS CALCULATION
+      // =================================================
+      let perfectScoresCount = 0;
+      let cbtHighScores = 0;
+      let theoryHighScores = 0;
+      let weekendQuizzes = 0;
+      let hasEarlyBirdQuiz = false;
+      let hasNightQuiz = false;
+      let hasCompletedCSCQuiz = false;
+      let hasCompletedEEEQuiz = false;
+      let hasCompletedMTHQuiz = false;
+      let hasCompletedPHYQuiz = false;
+      const courseIdSet = new Set<string>();
+
+      const sortedByTimeAsc = [...history].sort((a: any, b: any) => 
+        new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+      );
+
+      let currentConsecutivePerfect = 0;
+      let maxConsecutivePerfectScores = 0;
+
+      for (const quiz of sortedByTimeAsc) {
+        const totalQuestions = Number(quiz.totalQuestions) || 0;
+        const score = Number(quiz.score) || 0;
+        const maximumScore = totalQuestions * POINTS_PER_QUESTION;
+        const percentage = maximumScore > 0 ? Number(((score / maximumScore) * 100).toFixed(2)) : 0;
+        const quizType = String(quiz.quizType || 'cbt').toLowerCase();
+        const category = String(quiz.category || '').toLowerCase();
+
+        if (quiz.courseId) {
+          courseIdSet.add(quiz.courseId);
+        }
+
+        if (percentage >= 100) {
+          perfectScoresCount++;
+          currentConsecutivePerfect++;
+          if (currentConsecutivePerfect > maxConsecutivePerfectScores) {
+            maxConsecutivePerfectScores = currentConsecutivePerfect;
+          }
+        } else {
+          currentConsecutivePerfect = 0;
+        }
+
+        if (quizType === 'cbt' && percentage >= 80) {
+          cbtHighScores++;
+        }
+        if (quizType === 'theory' && percentage >= 80) {
+          theoryHighScores++;
+        }
+
+        if (category.startsWith('csc') || category.includes('computer')) {
+          hasCompletedCSCQuiz = true;
+        }
+        if (category.startsWith('eee') || category.includes('electrical')) {
+          hasCompletedEEEQuiz = true;
+        }
+        if (category.startsWith('mth') || category.includes('math')) {
+          hasCompletedMTHQuiz = true;
+        }
+        if (category.startsWith('phy') || category.includes('physics')) {
+          hasCompletedPHYQuiz = true;
+        }
+
+        const dateObj = quiz.createdAt ? new Date(quiz.createdAt) : null;
+        if (dateObj && !isNaN(dateObj.getTime())) {
+          const hour = dateObj.getHours();
+          const day = dateObj.getDay(); // 0 = Sun, 6 = Sat
+          if (day === 0 || day === 6) {
+            weekendQuizzes++;
+          }
+          if (hour >= 22 || hour <= 4) {
+            hasNightQuiz = true;
+          }
+          if (hour >= 4 && hour < 7) {
+            hasEarlyBirdQuiz = true;
+          }
+        }
+      }
+
+      const distinctCourses = courseIdSet.size;
+
       // 1. Fast Learner
-      // =================================================
-
-      if (
-        totalQuizzes >= 5
-      ) {
-
-        await authService
-          .unlockAchievement(
-            userId,
-            {
-              key: '1',
-
-              title:
-                'Fast Learner',
-
-              description:
-                'Complete 5 quizzes',
-
-              icon:
-                'speedometer',
-            }
-          );
+      if (totalQuizzes >= 5) {
+        await authService.unlockAchievement(userId, {
+          key: '1',
+          title: 'Fast Learner',
+          description: 'Complete 5 quizzes',
+          icon: 'speedometer',
+        });
       }
 
-      // =================================================
       // 2. Perfect Score
-      // =================================================
-
-      const hasPerfectScore =
-        history.some(
-          (quiz: any) => {
-
-            const totalQuestions =
-              Number(
-                quiz.totalQuestions
-              ) || 0;
-
-            const score =
-              Number(
-                quiz.score
-              ) || 0;
-
-            const maximumScore =
-              totalQuestions *
-              POINTS_PER_QUESTION;
-
-            if (
-              maximumScore <= 0
-            ) {
-              return false;
-            }
-
-            const percentage =
-              Number(
-                (
-                  (
-                    score /
-                    maximumScore
-                  ) *
-                  100
-                ).toFixed(2)
-              );
-
-            return (
-              percentage === 100
-            );
-          }
-        );
-
-      if (
-        hasPerfectScore
-      ) {
-
-        await authService
-          .unlockAchievement(
-            userId,
-            {
-              key: '2',
-
-              title:
-                'Perfect Score',
-
-              description:
-                'Get 100% in any quiz',
-
-              icon:
-                'trophy',
-            }
-          );
+      if (perfectScoresCount >= 1) {
+        await authService.unlockAchievement(userId, {
+          key: '2',
+          title: 'Perfect Score',
+          description: 'Get 100% in any quiz',
+          icon: 'trophy',
+        });
       }
 
-      // =================================================
       // 3. Scholar Status
-      // =================================================
-
-      if (
-        totalScore >= 1000
-      ) {
-
-        await authService
-          .unlockAchievement(
-            userId,
-            {
-              key: '3',
-
-              title:
-                'Scholar Status',
-
-              description:
-                'Reach 1000 Total Pts',
-
-              icon:
-                'school',
-            }
-          );
+      if (totalScore >= 1000) {
+        await authService.unlockAchievement(userId, {
+          key: '3',
+          title: 'Scholar Status',
+          description: 'Reach 1000 Total Pts',
+          icon: 'school',
+        });
       }
 
-      // =================================================
       // 4. CSC Starter
-      // =================================================
-
-      const hasCompletedCSCQuiz =
-        history.some(
-          (quiz: any) => {
-
-            const category =
-              quiz.category
-                ?.toLowerCase() ||
-              '';
-
-            return category.startsWith(
-              'csc'
-            );
-          }
-        );
-
-      if (
-        hasCompletedCSCQuiz
-      ) {
-
-        await authService
-          .unlockAchievement(
-            userId,
-            {
-              key: '4',
-
-              title:
-                'CSC Starter',
-
-              description:
-                'Complete a Computer Science quiz',
-
-              icon:
-                'code-slash',
-            }
-          );
+      if (hasCompletedCSCQuiz) {
+        await authService.unlockAchievement(userId, {
+          key: '4',
+          title: 'CSC Starter',
+          description: 'Complete a Computer Science quiz',
+          icon: 'xml',
+        });
       }
 
-      // =================================================
       // 5. Consistency
-      // =================================================
-
-      if (
-        userStreak >= 7
-      ) {
-
-        await authService
-          .unlockAchievement(
-            userId,
-            {
-              key: '5',
-
-              title:
-                'Consistency',
-
-              description:
-                'Achieve a 7-day streak',
-
-              icon:
-                'fire',
-            }
-          );
+      if (userStreak >= 7) {
+        await authService.unlockAchievement(userId, {
+          key: '5',
+          title: 'Consistency',
+          description: 'Achieve a 7-day streak',
+          icon: 'fire',
+        });
       }
 
-      // =================================================
       // 6. Night Owl
-      // =================================================
+      if (hasNightQuiz) {
+        await authService.unlockAchievement(userId, {
+          key: '6',
+          title: 'Night Owl',
+          description: 'Take a quiz after 10PM',
+          icon: 'weather-moonset',
+        });
+      }
 
-      const hasNightQuiz =
-        history.some(
-          (quiz: any) => {
+      // 7. Early Bird
+      if (hasEarlyBirdQuiz) {
+        await authService.unlockAchievement(userId, {
+          key: '7',
+          title: 'Early Bird',
+          description: 'Take a quiz before 7AM',
+          icon: 'weather-sunny',
+        });
+      }
 
-            const dateObj =
-              quiz.createdAt
-                ? new Date(
-                    quiz.createdAt
-                  )
-                : null;
+      // 8. Hat Trick (Score 100% three times)
+      if (perfectScoresCount >= 3) {
+        await authService.unlockAchievement(userId, {
+          key: '8',
+          title: 'Hat Trick',
+          description: 'Score 100% three times',
+          icon: 'star-circle',
+        });
+      }
 
-            if (
-              !dateObj ||
-              isNaN(
-                dateObj.getTime()
-              )
-            ) {
-              return false;
-            }
+      // 9. Warm Up (Complete your first quiz)
+      if (totalQuizzes >= 1) {
+        await authService.unlockAchievement(userId, {
+          key: '9',
+          title: 'Warm Up',
+          description: 'Complete your first quiz',
+          icon: 'rocket-launch',
+        });
+      }
 
-            const hour =
-              dateObj.getHours();
+      // 10. 3-Day Streak
+      if (userStreak >= 3) {
+        await authService.unlockAchievement(userId, {
+          key: '10',
+          title: '3-Day Streak',
+          description: 'Maintain a 3-day streak',
+          icon: 'calendar-check',
+        });
+      }
 
-            return (
-              hour >= 22 ||
-              hour <= 4
-            );
-          }
-        );
+      // 11. Marathon (Complete 25 quizzes)
+      if (totalQuizzes >= 25) {
+        await authService.unlockAchievement(userId, {
+          key: '11',
+          title: 'Marathon',
+          description: 'Complete 25 quizzes',
+          icon: 'run-fast',
+        });
+      }
 
-      if (
-        hasNightQuiz
-      ) {
+      // 12. Century (Complete 100 quizzes)
+      if (totalQuizzes >= 100) {
+        await authService.unlockAchievement(userId, {
+          key: '12',
+          title: 'Century',
+          description: 'Complete 100 quizzes',
+          icon: 'numeric-100-box',
+        });
+      }
 
-        await authService
-          .unlockAchievement(
-            userId,
-            {
-              key: '6',
+      // 13. Theory Master (Score 80%+ on 5 theory assessments)
+      if (theoryHighScores >= 5) {
+        await authService.unlockAchievement(userId, {
+          key: '13',
+          title: 'Theory Master',
+          description: 'Score 80%+ on 5 theory assessments',
+          icon: 'book-open-page-variant',
+        });
+      }
 
-              title:
-                'Night Owl',
+      // 14. CBT Champion (Score 80%+ on 10 CBT quizzes)
+      if (cbtHighScores >= 10) {
+        await authService.unlockAchievement(userId, {
+          key: '14',
+          title: 'CBT Champion',
+          description: 'Score 80%+ on 10 CBT quizzes',
+          icon: 'laptop',
+        });
+      }
 
-              description:
-                'Take a quiz after 10PM',
+      // 15. Multi-Faculty (Quizzes from 3 courses/faculties)
+      if (distinctCourses >= 3) {
+        await authService.unlockAchievement(userId, {
+          key: '15',
+          title: 'Multi-Faculty',
+          description: 'Complete quizzes from 3 different faculties',
+          icon: 'domain',
+        });
+      }
 
-              icon:
-                'weather-moonset',
-            }
-          );
+      // 16. Department Explorer (Quizzes from 5 departments/courses)
+      if (distinctCourses >= 5) {
+        await authService.unlockAchievement(userId, {
+          key: '16',
+          title: 'Department Explorer',
+          description: 'Complete quizzes from 5 departments',
+          icon: 'compass-outline',
+        });
+      }
+
+      // 17. Weekend Warrior (Take 5 quizzes on weekends)
+      if (weekendQuizzes >= 5) {
+        await authService.unlockAchievement(userId, {
+          key: '17',
+          title: 'Weekend Warrior',
+          description: 'Take 5 quizzes on weekends',
+          icon: 'beach',
+        });
+      }
+
+      // 21. EEE Explorer
+      if (hasCompletedEEEQuiz) {
+        await authService.unlockAchievement(userId, {
+          key: '21',
+          title: 'EEE Explorer',
+          description: 'Complete an Electrical Engineering quiz',
+          icon: 'flash',
+        });
+      }
+
+      // 22. MTH Solver
+      if (hasCompletedMTHQuiz) {
+        await authService.unlockAchievement(userId, {
+          key: '22',
+          title: 'MTH Solver',
+          description: 'Complete a Mathematics quiz',
+          icon: 'calculator-variant',
+        });
+      }
+
+      // 23. PHY Pioneer
+      if (hasCompletedPHYQuiz) {
+        await authService.unlockAchievement(userId, {
+          key: '23',
+          title: 'PHY Pioneer',
+          description: 'Complete a Physics quiz',
+          icon: 'atom',
+        });
+      }
+
+      // 25. Perfectionist (5 perfect scores in a row)
+      if (maxConsecutivePerfectScores >= 5) {
+        await authService.unlockAchievement(userId, {
+          key: '25',
+          title: 'Perfectionist',
+          description: 'Get 5 perfect scores in a row',
+          icon: 'check-decagram',
+        });
+      }
+
+      // 26. 14-Day Streak
+      if (userStreak >= 14) {
+        await authService.unlockAchievement(userId, {
+          key: '26',
+          title: '14-Day Streak',
+          description: 'Maintain a 14-day streak',
+          icon: 'calendar-star',
+        });
+      }
+
+      // 27. 30-Day Streak
+      if (userStreak >= 30) {
+        await authService.unlockAchievement(userId, {
+          key: '27',
+          title: '30-Day Streak',
+          description: 'Maintain a 30-day streak',
+          icon: 'calendar-month',
+        });
+      }
+
+      // 29. All-Rounder (10 different courses)
+      if (distinctCourses >= 10) {
+        await authService.unlockAchievement(userId, {
+          key: '29',
+          title: 'All-Rounder',
+          description: 'Complete quizzes in 10 different courses',
+          icon: 'chart-donut',
+        });
+      }
+
+      // 30. Quiz Legend (200 quizzes total)
+      if (totalQuizzes >= 200) {
+        await authService.unlockAchievement(userId, {
+          key: '30',
+          title: 'Quiz Legend',
+          description: 'Complete 200 quizzes total',
+          icon: 'crown',
+        });
       }
     },
 

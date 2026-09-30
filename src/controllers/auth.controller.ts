@@ -3,8 +3,24 @@ import type { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
 import { OAuth2Client } from 'google-auth-library';
 import logger from '../config/logger.js';
 import { authService } from '../services/authService.js';
+import { emailService } from '../services/emailService.js';
 
 const googleOAuthClient = new OAuth2Client();
+
+const maskIdentifier = (target?: string | null): string => {
+  if (!target) return 'unknown';
+  const trimmed = target.trim();
+  if (trimmed.includes('@')) {
+    const parts = trimmed.split('@');
+    const local = parts[0] || '';
+    const domain = parts[1] || '';
+    if (local.length <= 2) {
+      return `*@${domain}`;
+    }
+    return `${local.slice(0, 2)}***${local.slice(-1)}@${domain}`;
+  }
+  return trimmed.slice(-4).padStart(trimmed.length, '*');
+};
 
 // =====================================================
 // OTP
@@ -17,26 +33,54 @@ export const sendOtp = async (
   const {
     phoneNumber,
     email,
+    fullName,
   } = req.body;
 
-  const identifier =
-    phoneNumber || email;
+  const identifier = (phoneNumber || email || '').trim();
 
-  const otpCode =
-    authService.generateOtp(
-      identifier
+  if (!identifier) {
+    res.status(400).json({
+      status: 'fail',
+      message: 'Either phone number or email is required.',
+    });
+    return;
+  }
+
+  const otpCode = authService.generateOtp(identifier);
+  const maskedTarget = maskIdentifier(identifier);
+
+  logger.info(`[SEND OTP] OTP generated for target: ${maskedTarget}`);
+
+  let emailSent = false;
+  if (identifier.includes('@')) {
+    const emailResult = await emailService.sendVerificationEmail(
+      identifier,
+      otpCode,
+      fullName
     );
 
-  logger.info(
-    `[SEND OTP] Generated code ${otpCode} for target: ${identifier}`
-  );
+    if (emailResult.success) {
+      emailSent = true;
+      logger.info(`[SEND OTP] Verification email dispatched to ${maskedTarget}`);
+    } else {
+      logger.error(
+        `[SEND OTP] Email delivery failed for ${maskedTarget}: ${emailResult.error}`
+      );
+    }
+  }
 
-  res.status(200).json({
+  const responsePayload: Record<string, any> = {
     status: 'success',
-    message:
-      'OTP sent successfully!',
-    testOtp: otpCode,
-  });
+    message: emailSent
+      ? 'Verification code sent to your email address!'
+      : 'OTP sent successfully!',
+  };
+
+  if (process.env.NODE_ENV !== 'production') {
+    responsePayload.testOtp = otpCode;
+  }
+
+  res.status(200).json(responsePayload);
 };
 
 export const verifyOtp = async (
@@ -52,11 +96,9 @@ export const verifyOtp = async (
     fullName,
   } = req.body;
 
-  const identifier =
-    phoneNumber || email;
-
-  const inputCode =
-    code || otp;
+  const identifier = (phoneNumber || email || '').trim();
+  const inputCode = (code || otp || '').trim();
+  const maskedTarget = maskIdentifier(identifier);
 
   if (
     !authService.verifyOtpCode(
@@ -65,7 +107,7 @@ export const verifyOtp = async (
     )
   ) {
     logger.warn(
-      `[VERIFY OTP] Failed attempt for target: ${identifier}`
+      `[VERIFY OTP] Failed attempt for target: ${maskedTarget}`
     );
 
     res.status(400).json({
@@ -127,7 +169,7 @@ export const verifyOtp = async (
     );
 
   logger.info(
-    `[VERIFY OTP] Success for target: ${identifier}`
+    `[VERIFY OTP] Success for target: ${maskedTarget}`
   );
 
   res.status(200).json({
@@ -456,24 +498,58 @@ export const forgotPassword =
       phoneNumber,
     } = req.body;
 
-    const identifier =
-      email || phoneNumber;
+    const identifier = (email || phoneNumber || '').trim();
+
+    if (!identifier) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Either email or phone number is required.',
+      });
+      return;
+    }
 
     const otpCode =
       authService.generateOtp(
         identifier
       );
 
+    const maskedTarget = maskIdentifier(identifier);
+
     logger.info(
-      `[FORGOT PASSWORD] Reset OTP generated for: ${identifier}`
+      `[FORGOT PASSWORD] Reset OTP generated for: ${maskedTarget}`
     );
 
-    res.status(200).json({
+    let emailSent = false;
+    if (identifier.includes('@')) {
+      const emailResult = await emailService.sendPasswordResetEmail(
+        identifier,
+        otpCode
+      );
+
+      if (emailResult.success) {
+        emailSent = true;
+        logger.info(
+          `[FORGOT PASSWORD] Password reset email dispatched to ${maskedTarget}`
+        );
+      } else {
+        logger.error(
+          `[FORGOT PASSWORD] Email delivery failed for ${maskedTarget}: ${emailResult.error}`
+        );
+      }
+    }
+
+    const responsePayload: Record<string, any> = {
       status: 'success',
-      message:
-        'Password reset OTP sent successfully!',
-      testOtp: otpCode,
-    });
+      message: emailSent
+        ? 'Password reset code sent to your email address!'
+        : 'Password reset OTP sent successfully!',
+    };
+
+    if (process.env.NODE_ENV !== 'production') {
+      responsePayload.testOtp = otpCode;
+    }
+
+    res.status(200).json(responsePayload);
   };
 
 // =====================================================
@@ -1007,6 +1083,9 @@ export const getAchievements =
     }
 
     try {
+      // Proactively evaluate any newly qualified achievements before returning
+      await authService.evaluateAndUnlockAchievements(userId);
+
       const achievements =
         await authService.getUserAchievements(
           userId

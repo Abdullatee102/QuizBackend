@@ -4,7 +4,7 @@ import {
   listUserSupportRequests,
   getSupportRequestDetails,
   addSupportMessage,
-  updateSupportStatus,
+  updateSupportStatus, 
 } from '../controllers/support.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { validate } from '../middlewares/validate.middleware.js';
@@ -43,3 +43,6 @@ router.patch(
 );
 
 export default router;
+
+
+

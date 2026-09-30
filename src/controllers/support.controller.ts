@@ -33,6 +33,40 @@ export const createSupportRequest = async (
 
     logger.info(`[SUPPORT] Created ticket ${newRequest.id} for user ${userId}`);
 
+    // Async AI Reply (non-blocking)
+    import('../services/ai/index.js').then(({ aiProvider }) => {
+      if (aiProvider.isAvailable()) {
+        aiProvider.generateSupportResponse({ userMessage: message }).then((aiReply) => {
+          supportService.addSupportMessage({
+            requestId: newRequest.id as string,
+            userId,
+            message: aiReply.answer,
+            senderRole: 'ai_assistant'
+          });
+            // Send in-app notification & update unread badge
+            import('../services/notificationService.js').then(({ notificationService }) => {
+              notificationService.createNotification({
+                userId: String(userId),
+                type: 'message',
+                title: 'New Support AI Reply 🤖',
+                body: aiReply.answer.substring(0, 100) + (aiReply.answer.length > 100 ? '...' : ''),
+                data: { url: '/support', requestId: newRequest.id }
+              }).catch(() => {});
+            }).catch(() => {});
+            // Send in-app notification & update unread badge
+            import('../services/notificationService.js').then(({ notificationService }) => {
+              notificationService.createNotification({
+                userId: String(userId),
+                type: 'message',
+                title: 'New Support AI Reply 🤖',
+                body: aiReply.answer.substring(0, 100) + (aiReply.answer.length > 100 ? '...' : ''),
+                data: { url: '/support', requestId: newRequest.id }
+              }).catch(() => {});
+            }).catch(() => {});
+        }).catch(err => logger.error('AI Reply error: ' + err));
+      }
+    }).catch(err => logger.error('AI module error: ' + err));
+
     res.status(201).json({
       status: 'success',
       message: 'Support request submitted successfully',
@@ -153,6 +187,20 @@ export const addSupportMessage = async (
       userId,
       message,
     });
+
+    // Async AI Reply (non-blocking)
+    import('../services/ai/index.js').then(({ aiProvider }) => {
+      if (aiProvider.isAvailable()) {
+        aiProvider.generateSupportResponse({ userMessage: message }).then((aiReply) => {
+          supportService.addSupportMessage({
+            requestId: requestId as string,
+            userId,
+            message: aiReply.answer,
+            senderRole: 'ai_assistant'
+          });
+        }).catch(err => logger.error('AI Reply error: ' + err));
+      }
+    }).catch(err => logger.error('AI module error: ' + err));
 
     res.status(201).json({
       status: 'success',

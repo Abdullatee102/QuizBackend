@@ -9,6 +9,7 @@ import {
 } from '../db/schema.js';
 
 import { eq, and } from 'drizzle-orm';
+import { aiProvider } from './ai/index.js';
 
 // =====================================================
 // TYPES
@@ -97,7 +98,7 @@ interface QuizGradingResult {
    * 75 points / 100 possible  = 75%
    * 50 points / 100 possible  = 50%
    */
-  percentage: number;
+  percentage: number; gradingMethod?: string; status?: string;
 
   results: GradedQuestion[];
 }
@@ -535,7 +536,7 @@ export const quizService = {
     async (
       facultyId: string
     ): Promise<any[]> => {
-      return await db
+      const departments = await db
         .select()
         .from(departmentsTable)
         .where(
@@ -544,6 +545,21 @@ export const quizService = {
             facultyId
           )
         );
+
+      return [...departments].sort((a, b) => {
+        const getPriority = (d: { name: string; code?: string | null }) => {
+          const code = (d.code || '').toUpperCase();
+          const name = (d.name || '').toLowerCase();
+          if (code === 'CSC' || name.includes('computer science')) return 1;
+          if (code === 'CYB' || name.includes('cyber security') || name.includes('cybersecurity')) return 2;
+          if (code === 'INS' || name.includes('information systems') || name.includes('information system')) return 3;
+          return 100;
+        };
+        const pA = getPriority(a);
+        const pB = getPriority(b);
+        if (pA !== pB) return pA - pB;
+        return (a.name || '').localeCompare(b.name || '');
+      });
     },
 
   // ===================================================
