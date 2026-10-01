@@ -1012,4 +1012,45 @@ export const quizService = {
         .from(questionsTable)
         .limit(limit);
     },
+
+  getMixedQuestions: async (
+    level?: string,
+    type?: QuizType,
+    limit: number = 30
+  ): Promise<any[]> => {
+    let query = db
+      .select({
+        id: questionsTable.id,
+        courseId: questionsTable.courseId,
+        type: questionsTable.type,
+        question: questionsTable.question,
+        options: questionsTable.options,
+        difficulty: questionsTable.difficulty,
+        courseCode: coursesTable.code,
+        courseTitle: coursesTable.title,
+      })
+      .from(questionsTable)
+      .innerJoin(coursesTable, eq(questionsTable.courseId, coursesTable.id));
+
+    const conditions = [];
+    if (type) {
+      conditions.push(eq(questionsTable.type, type));
+    }
+    if (level) {
+      const parsedLevel = parseInt(level, 10);
+      if (!isNaN(parsedLevel)) {
+        conditions.push(eq(coursesTable.level, parsedLevel));
+      }
+    }
+
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+
+    const all = await query.limit(limit * 2);
+    const shuffled = all.sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, limit);
+  },
 };
+

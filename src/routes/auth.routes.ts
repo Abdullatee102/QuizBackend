@@ -28,7 +28,9 @@ import {
   getCoursesList,
   getQuestionsByCourseId,
   getQuestionsByCategory,
+  getMixedQuestionsHandler,
 } from '../controllers/quiz.controller.js';
+
 
 import { validate } from '../middlewares/validate.middleware.js';
 import {
@@ -264,6 +266,13 @@ router.get(
   protect,
   getQuestionsByCourseId
 );
+
+router.get(
+  '/questions/mixed',
+  protect,
+  getMixedQuestionsHandler
+);
+
 
 // =====================================================
 // LEGACY BACKWARD COMPATIBILITY

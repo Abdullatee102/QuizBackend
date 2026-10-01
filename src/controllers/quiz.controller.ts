@@ -322,3 +322,33 @@ export const getQuestionsByCategory =
       });
     }
   };
+
+export const getMixedQuestionsHandler = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  const { level, type, limit } = req.query;
+  const parsedLimit = limit ? parseInt(limit as string, 10) : 30;
+
+  try {
+    logger.info(`[QUIZ] Fetching mixed questions level=${level} type=${type} limit=${parsedLimit}`);
+    const questions = await quizService.getMixedQuestions(
+      level as string,
+      normalizeQuizType(type),
+      parsedLimit
+    );
+
+    res.status(200).json({
+      status: 'success',
+      count: questions.length,
+      data: questions,
+    });
+  } catch (error: any) {
+    logger.error(`[QUIZ] Error fetching mixed questions: ${error.message}`);
+    res.status(500).json({
+      status: 'fail',
+      message: 'Failed to fetch mixed questions',
+    });
+  }
+};
+
