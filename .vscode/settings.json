@@ -1,0 +1,4 @@
+{
+  "files.saveConflictResolution": "overwriteFileOnDisk",
+  "files.autoSave": "onFocusChange"
+}

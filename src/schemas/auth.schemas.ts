@@ -318,7 +318,7 @@ export const submitQuizHistorySchema = z.object({
   body: z.object({
     courseId: z
       .string()
-      .uuid('Invalid course ID'),
+      .min(1, 'Course ID is required'),
 
     category: z
       .string()

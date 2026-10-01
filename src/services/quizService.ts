@@ -8,7 +8,7 @@ import {
   type GradingPoint,
 } from '../db/schema.js';
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { aiProvider } from './ai/index.js';
 
 // =====================================================
@@ -641,7 +641,7 @@ export const quizService = {
        * to the mobile application.
        */
 
-      const questions =
+      const allQuestions =
         await db
           .select({
             id:
@@ -665,10 +665,22 @@ export const quizService = {
           .from(questionsTable)
           .where(
             and(...conditions)
-          )
-          .limit(limit);
+          );
 
-      return questions;
+      // Randomize question order dynamically per attempt
+      const shuffled = [...allQuestions].sort(() => 0.5 - Math.random());
+      const selected = shuffled.slice(0, limit);
+
+      // Randomize CBT options per attempt
+      return selected.map((q) => {
+        if (q.type === 'cbt' && Array.isArray(q.options) && q.options.length > 1) {
+          return {
+            ...q,
+            options: [...q.options].sort(() => 0.5 - Math.random()),
+          };
+        }
+        return q;
+      });
     },
 
   // ===================================================
@@ -685,8 +697,15 @@ export const quizService = {
      * ONLY on the backend.
      */
 
-    const questions =
-      await db
+    const questionIds = (answers || [])
+      .map((item) => item.questionId)
+      .filter((id) => typeof id === 'string' && id.length > 0);
+
+    let questions: any[] = [];
+
+    // If grading a mixed quiz or answers contain valid questionIds, fetch exact served questions
+    if ((courseId === 'mixed' || questionIds.length > 0) && questionIds.length > 0) {
+      questions = await db
         .select({
           id:
             questionsTable.id,
@@ -706,9 +725,9 @@ export const quizService = {
         .from(questionsTable)
         .where(
           and(
-            eq(
-              questionsTable.courseId,
-              courseId
+            inArray(
+              questionsTable.id,
+              questionIds
             ),
 
             eq(
@@ -717,6 +736,43 @@ export const quizService = {
             )
           )
         );
+    }
+
+    // Fallback if questions not found via questionIds
+    if (!questions || questions.length === 0) {
+      questions =
+        await db
+          .select({
+            id:
+              questionsTable.id,
+
+            courseId:
+              questionsTable.courseId,
+
+            type:
+              questionsTable.type,
+
+            correctAnswer:
+              questionsTable.correctAnswer,
+
+            gradingPoints:
+              questionsTable.gradingPoints,
+          })
+          .from(questionsTable)
+          .where(
+            and(
+              eq(
+                questionsTable.courseId,
+                courseId
+              ),
+
+              eq(
+                questionsTable.type,
+                quizType
+              )
+            )
+          );
+    }
 
     if (
       !questions ||
@@ -1050,7 +1106,17 @@ export const quizService = {
 
     const all = await query.limit(limit * 2);
     const shuffled = all.sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, limit);
+    const selected = shuffled.slice(0, limit);
+
+    return selected.map((q) => {
+      if (q.type === 'cbt' && Array.isArray(q.options) && q.options.length > 1) {
+        return {
+          ...q,
+          options: [...q.options].sort(() => 0.5 - Math.random()),
+        };
+      }
+      return q;
+    });
   },
 };
 

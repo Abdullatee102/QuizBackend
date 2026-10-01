@@ -1059,17 +1059,36 @@ export const authService = {
         quizData.quizType
       );
 
-    const [course] =
-      await db
+    let course: { id: string; code: string; title: string } | undefined;
+
+    if (quizData.courseId === 'mixed') {
+      const firstQuestionId = quizData.answers[0]?.questionId;
+      if (firstQuestionId) {
+        const [q] = await db
+          .select({ courseId: questionsTable.courseId })
+          .from(questionsTable)
+          .where(eq(questionsTable.id, firstQuestionId));
+        if (q?.courseId) {
+          const [c] = await db
+            .select({ id: coursesTable.id, code: coursesTable.code, title: coursesTable.title })
+            .from(coursesTable)
+            .where(eq(coursesTable.id, q.courseId));
+          course = c;
+        }
+      }
+      if (!course) {
+        const [fallbackCourse] = await db
+          .select({ id: coursesTable.id, code: coursesTable.code, title: coursesTable.title })
+          .from(coursesTable)
+          .limit(1);
+        course = fallbackCourse;
+      }
+    } else {
+      const [found] = await db
         .select({
-          id:
-            coursesTable.id,
-
-          code:
-            coursesTable.code,
-
-          title:
-            coursesTable.title,
+          id: coursesTable.id,
+          code: coursesTable.code,
+          title: coursesTable.title,
         })
         .from(coursesTable)
         .where(
@@ -1078,6 +1097,8 @@ export const authService = {
             quizData.courseId
           )
         );
+      course = found;
+    }
 
     if (!course) {
       throw new Error(
@@ -1119,7 +1140,7 @@ export const authService = {
             userId as any,
 
           courseId:
-            quizData.courseId,
+            course.id,
 
           quizType,
 
