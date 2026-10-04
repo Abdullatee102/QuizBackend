@@ -472,6 +472,61 @@ export const messagesTable = pgTable(
 );
 
 // =====================================================
+// CONVERSATION READ STATES
+// =====================================================
+
+/*
+ * Tracks the last point a user has read in each
+ * conversation.
+ *
+ * This is intentionally separate from conversationsTable
+ * because read state belongs to a specific user.
+ *
+ * Example:
+ *
+ * Conversation A
+ *  ├── User 1 → lastReadAt: 10:30
+ *  ├── User 2 → lastReadAt: 10:45
+ *  └── User 3 → lastReadAt: 11:00
+ *
+ * This allows each user to have their own unread count.
+ */
+
+export const conversationReadsTable = pgTable(
+  'conversation_reads',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    conversationId: uuid('conversation_id')
+      .references(() => conversationsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    lastReadAt: timestamp('last_read_at')
+      .defaultNow()
+      .notNull(),
+  },
+
+  (table) => ({
+    userConversationUnique: unique(
+      'conversation_reads_user_conversation_unique'
+    ).on(
+      table.userId,
+      table.conversationId
+    ),
+  })
+);
+
+// =====================================================
 // SUPPORT REQUESTS & MESSAGES
 // =====================================================
 

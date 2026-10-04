@@ -6,6 +6,7 @@ import {
   getConversation,
   getMessages,
   sendMessage,
+  markConversationAsRead,
   getUnreadConversationsCount,
 } from '../controllers/message.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
@@ -40,6 +41,11 @@ router.post(
   protect,
   validate(sendMessageSchema),
   sendMessage
+);
+router.post(
+  '/conversations/:conversationId/read',
+  protect,
+  markConversationAsRead
 );
 
 export default router;

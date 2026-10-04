@@ -244,6 +244,75 @@ export const sendMessage = async (
   }
 };
 
+// =====================================================
+// MARK CONVERSATION AS READ
+// =====================================================
+
+export const markConversationAsRead = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user?.id || req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Unauthorized',
+      });
+      return;
+    }
+
+    const conversation =
+      await messageService.getConversationById(
+        conversationId as string
+      );
+
+    if (!conversation) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'Conversation not found',
+      });
+      return;
+    }
+
+    const authorized =
+      await messageService.isUserAuthorizedForConversation(
+        conversationId as string,
+        userId
+      );
+
+    if (!authorized) {
+      res.status(403).json({
+        status: 'fail',
+        message: 'Access denied to this conversation',
+      });
+      return;
+    }
+
+    const readState =
+      await messageService.markConversationAsRead(
+        conversationId as string,
+        userId
+      );
+
+    res.status(200).json({
+      status: 'success',
+      data: readState,
+    });
+  } catch (error: any) {
+    logger.error(
+      `[MESSAGES] Error marking conversation as read: ${error.message}`
+    );
+
+    res.status(500).json({
+      status: 'fail',
+      message: 'Failed to mark conversation as read',
+    });
+  }
+};
+
 
 
 // =====================================================
