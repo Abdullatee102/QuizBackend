@@ -1045,7 +1045,7 @@ export const quizService = {
       category: string,
       limit: number = 10
     ): Promise<any[]> => {
-      return await db
+      const allQuestions = await db
         .select({
           id:
             questionsTable.id,
@@ -1066,7 +1066,20 @@ export const quizService = {
             questionsTable.difficulty,
         })
         .from(questionsTable)
-        .limit(limit);
+        .limit(limit * 3);
+
+      const shuffled = [...allQuestions].sort(() => 0.5 - Math.random());
+      const selected = shuffled.slice(0, limit);
+
+      return selected.map((q) => {
+        if (q.type === 'cbt' && Array.isArray(q.options) && q.options.length > 1) {
+          return {
+            ...q,
+            options: [...q.options].sort(() => 0.5 - Math.random()),
+          };
+        }
+        return q;
+      });
     },
 
   getMixedQuestions: async (
