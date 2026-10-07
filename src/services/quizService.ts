@@ -65,6 +65,12 @@ interface GradedQuestion {
   matchedConcepts?: string[];
   missingConcepts?: string[];
   feedback?: string;
+
+  /**
+   * Exact solution or reference answer for student review
+   */
+  correctAnswer?: string;
+  sampleAnswer?: string;
 }
 
 interface QuizGradingResult {
@@ -833,6 +839,9 @@ export const quizService = {
 
               isCorrect,
 
+              correctAnswer:
+                question.correctAnswer,
+
               /*
                * CBT is either:
                *
@@ -897,6 +906,12 @@ export const quizService = {
 
             isCorrect:
               theoryResult.isCorrect,
+
+            correctAnswer:
+              question.correctAnswer,
+
+            sampleAnswer:
+              question.correctAnswer,
 
             score:
               questionScore,
@@ -1130,6 +1145,42 @@ export const quizService = {
       }
       return q;
     });
+  },
+
+  // ===================================================
+  // REVIEW QUESTIONS (Includes correctAnswer)
+  // ===================================================
+
+  getReviewQuestions: async (
+    courseId?: string,
+    type?: QuizType,
+    questionIds?: string[]
+  ): Promise<any[]> => {
+    const conditions = [];
+
+    if (Array.isArray(questionIds) && questionIds.length > 0) {
+      conditions.push(inArray(questionsTable.id, questionIds));
+    } else if (courseId && courseId !== 'mixed') {
+      conditions.push(eq(questionsTable.courseId, courseId));
+    }
+
+    if (type) {
+      conditions.push(eq(questionsTable.type, type));
+    }
+
+    return await db
+      .select({
+        id: questionsTable.id,
+        courseId: questionsTable.courseId,
+        type: questionsTable.type,
+        question: questionsTable.question,
+        options: questionsTable.options,
+        difficulty: questionsTable.difficulty,
+        correctAnswer: questionsTable.correctAnswer,
+        sampleAnswer: questionsTable.correctAnswer,
+      })
+      .from(questionsTable)
+      .where(conditions.length > 0 ? and(...conditions) : undefined);
   },
 };
 

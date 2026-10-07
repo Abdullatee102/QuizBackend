@@ -1761,21 +1761,17 @@ export const authService = {
       const results =
         await db
           .select({
-            id:
-              usersTable.id,
-
-            fullName:
-              usersTable.fullName,
-
-            username:
-              usersTable.username,
-
-            email:
-              usersTable.email,
-
-            photoURL:
-              usersTable.photoURL,
-
+            id: usersTable.id,
+            fullName: usersTable.fullName,
+            username: usersTable.username,
+            email: usersTable.email,
+            photoURL: usersTable.photoURL,
+            facultyId: usersTable.facultyId,
+            departmentId: usersTable.departmentId,
+            facultyCode: facultiesTable.code,
+            facultyName: facultiesTable.name,
+            departmentCode: departmentsTable.code,
+            departmentName: departmentsTable.name,
             totalScore:
               sql<number>`
                 coalesce(
@@ -1785,6 +1781,14 @@ export const authService = {
               `.mapWith(Number),
           })
           .from(usersTable)
+          .leftJoin(
+            facultiesTable,
+            eq(usersTable.facultyId, facultiesTable.id)
+          )
+          .leftJoin(
+            departmentsTable,
+            eq(usersTable.departmentId, departmentsTable.id)
+          )
           .leftJoin(
             quizHistoryTable,
             and(
@@ -1800,7 +1804,13 @@ export const authService = {
             usersTable.fullName,
             usersTable.username,
             usersTable.email,
-            usersTable.photoURL
+            usersTable.photoURL,
+            usersTable.facultyId,
+            usersTable.departmentId,
+            facultiesTable.code,
+            facultiesTable.name,
+            departmentsTable.code,
+            departmentsTable.name
           )
           .orderBy(
             desc(

@@ -352,3 +352,44 @@ export const getMixedQuestionsHandler = async (
   }
 };
 
+export const getReviewQuestionsHandler = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  const { courseId } = req.params;
+  const { type, questionIds } = req.query;
+
+  const quizType = normalizeQuizType(type);
+
+  let parsedQuestionIds: string[] | undefined = undefined;
+  if (typeof questionIds === 'string' && questionIds.trim().length > 0) {
+    parsedQuestionIds = questionIds.split(',').map((id) => id.trim()).filter(Boolean);
+  }
+
+  try {
+    logger.info(
+      `[QUIZ REVIEW] Fetching review questions for course: ${courseId || 'any'}, type: ${
+        quizType || 'all'
+      }`
+    );
+
+    const questions = await quizService.getReviewQuestions(
+      courseId as string,
+      quizType,
+      parsedQuestionIds
+    );
+
+    res.status(200).json({
+      status: 'success',
+      count: questions.length,
+      data: questions,
+    });
+  } catch (error: any) {
+    logger.error(`[QUIZ REVIEW ERROR]: ${error?.message || error}`);
+    res.status(500).json({
+      status: 'fail',
+      message: 'Failed to retrieve review questions.',
+    });
+  }
+};
+

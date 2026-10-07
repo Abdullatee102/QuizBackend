@@ -29,6 +29,7 @@ import {
   getQuestionsByCourseId,
   getQuestionsByCategory,
   getMixedQuestionsHandler,
+  getReviewQuestionsHandler,
 } from '../controllers/quiz.controller.js';
 
 
@@ -268,9 +269,21 @@ router.get(
 );
 
 router.get(
+  '/courses/:courseId/review-questions',
+  protect,
+  getReviewQuestionsHandler
+);
+
+router.get(
   '/questions/mixed',
   protect,
   getMixedQuestionsHandler
+);
+
+router.get(
+  '/questions/review',
+  protect,
+  getReviewQuestionsHandler
 );
 
 
