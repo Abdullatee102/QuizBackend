@@ -1,7 +1,11 @@
 import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import { eq } from 'drizzle-orm';
 import logger from '../config/logger.js';
+import { db } from '../db/index.js';
+import { supportRequestsTable, usersTable } from '../db/schema.js';
+import { isAdminRole, hasPermission } from '../config/permissions.js';
 import { messageService } from '../services/messageService.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -17,6 +21,7 @@ export interface AuthenticatedSocket extends Socket {
       email?: string;
       phoneNumber?: string;
       username?: string;
+      role?: string;
     };
   };
 }
@@ -66,6 +71,7 @@ export const socketService = {
           email: decoded.email,
           phoneNumber: decoded.phoneNumber,
           username: decoded.username,
+          role: decoded.role,
         };
 
         logger.info(
@@ -141,13 +147,70 @@ export const socketService = {
         socket.emit('joined', { room: roomName });
       });
 
-      // 5. Join Support Ticket Room
-      socket.on('join:support', (requestId: string) => {
-        if (!requestId) return;
-        const roomName = `support:${requestId}`;
-        socket.join(roomName);
-        logger.info(`[SOCKET] User ${userId} joined support room ${roomName}`);
-        socket.emit('joined', { room: roomName });
+      // 5. Join Support Ticket Room (Hardened Authorization)
+      socket.on('join:support', async (requestId: string) => {
+        if (!requestId || !userId) {
+          socket.emit('error', { message: 'Invalid support room request' });
+          return;
+        }
+
+        try {
+          const [ticket] = await db
+            .select({
+              id: supportRequestsTable.id,
+              userId: supportRequestsTable.userId,
+            })
+            .from(supportRequestsTable)
+            .where(eq(supportRequestsTable.id, requestId as any));
+
+          if (!ticket) {
+            socket.emit('unauthorized_support_room', {
+              requestId,
+              message: 'Support ticket not found',
+            });
+            return;
+          }
+
+          const isOwner = String(ticket.userId) === String(userId);
+          let isAdminAuthorized = false;
+
+          const userRole = socket.data.user?.role?.toUpperCase();
+          if (userRole && isAdminRole(userRole) && hasPermission(userRole, 'support.read')) {
+            isAdminAuthorized = true;
+          } else {
+            // Live verification from database
+            const [dbUser] = await db
+              .select({ role: usersTable.role, status: usersTable.status })
+              .from(usersTable)
+              .where(eq(usersTable.id, userId as any));
+
+            if (
+              dbUser &&
+              dbUser.status === 'ACTIVE' &&
+              isAdminRole(dbUser.role) &&
+              hasPermission(dbUser.role, 'support.read')
+            ) {
+              isAdminAuthorized = true;
+            }
+          }
+
+          if (!isOwner && !isAdminAuthorized) {
+            logger.warn(`[SOCKET] Unauthorized attempt to join support room ${requestId} by user ${userId}`);
+            socket.emit('unauthorized_support_room', {
+              requestId,
+              message: 'Forbidden: You do not have permission to join this support room.',
+            });
+            return;
+          }
+
+          const roomName = `support:${requestId}`;
+          socket.join(roomName);
+          logger.info(`[SOCKET] Authorized user ${userId} joined support room ${roomName}`);
+          socket.emit('joined', { room: roomName });
+        } catch (err: any) {
+          logger.error(`[SOCKET JOIN:SUPPORT ERROR]: ${err.message}`);
+          socket.emit('error', { message: 'Failed to authorize support room join' });
+        }
       });
 
       // 6. Leave Room

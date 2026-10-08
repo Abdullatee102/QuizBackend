@@ -582,6 +582,10 @@ export const quizService = {
         coursesTable.departmentId,
         departmentId
       ),
+      eq(
+        coursesTable.isActive,
+        true
+      ),
     ];
 
     if (level !== undefined) {
@@ -624,6 +628,10 @@ export const quizService = {
         eq(
           questionsTable.courseId,
           courseId
+        ),
+        eq(
+          questionsTable.isActive,
+          true
         ),
       ];
 
@@ -1116,7 +1124,10 @@ export const quizService = {
       .from(questionsTable)
       .innerJoin(coursesTable, eq(questionsTable.courseId, coursesTable.id));
 
-    const conditions = [];
+    const conditions = [
+      eq(questionsTable.isActive, true),
+      eq(coursesTable.isActive, true),
+    ];
     if (type) {
       conditions.push(eq(questionsTable.type, type));
     }

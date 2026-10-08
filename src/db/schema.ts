@@ -8,7 +8,43 @@ import {
   jsonb,
   boolean,
   unique,
+  index,
 } from 'drizzle-orm/pg-core';
+
+// =====================================================
+// USER ROLES & ACCOUNT STATUS
+// =====================================================
+
+export const USER_ROLES = {
+  SUPER_ADMIN: 'SUPER_ADMIN',
+  CONTENT_ADMIN: 'CONTENT_ADMIN',
+  SUPPORT_AGENT: 'SUPPORT_AGENT',
+  NOTIFICATION_ADMIN: 'NOTIFICATION_ADMIN',
+  MODERATOR: 'MODERATOR',
+  STUDENT: 'STUDENT',
+} as const;
+
+export type UserRole = (typeof USER_ROLES)[keyof typeof USER_ROLES];
+
+export const ACCOUNT_STATUS = {
+  ACTIVE: 'ACTIVE',
+  SUSPENDED: 'SUSPENDED',
+  DISABLED: 'DISABLED',
+} as const;
+
+export type AccountStatus = (typeof ACCOUNT_STATUS)[keyof typeof ACCOUNT_STATUS];
+
+export const SUPPORT_STATUS = {
+  OPEN: 'OPEN',
+  AI_HANDLING: 'AI_HANDLING',
+  WAITING_FOR_ADMIN: 'WAITING_FOR_ADMIN',
+  IN_PROGRESS: 'IN_PROGRESS',
+  WAITING_FOR_USER: 'WAITING_FOR_USER',
+  RESOLVED: 'RESOLVED',
+  CLOSED: 'CLOSED',
+} as const;
+
+export type SupportStatus = (typeof SUPPORT_STATUS)[keyof typeof SUPPORT_STATUS];
 
 // =====================================================
 // GRADING POINT TYPE
@@ -24,46 +60,64 @@ export type GradingPoint = {
 // USERS
 // =====================================================
 
-export const usersTable = pgTable('users', {
-  id: uuid('id')
-    .defaultRandom()
-    .primaryKey(),
+export const usersTable = pgTable(
+  'users',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
 
-  fullName: text('full_name')
-    .notNull(),
+    fullName: text('full_name')
+      .notNull(),
 
-  username: text('username')
-    .unique(),
+    username: text('username')
+      .unique(),
 
-  email: text('email')
-    .unique(),
+    email: text('email')
+      .unique(),
 
-  phoneNumber: text('phone_number')
-    .unique(),
+    phoneNumber: text('phone_number')
+      .unique(),
 
-  bio: text('bio'),
+    bio: text('bio'),
 
-  photoURL: text('photo_url'),
+    photoURL: text('photo_url'),
 
-  password: text('password')
-    .notNull(),
+    password: text('password')
+      .notNull(),
 
-  facultyId: uuid('faculty_id')
-    .references(() => facultiesTable.id, {
-      onDelete: 'set null',
-    }),
+    facultyId: uuid('faculty_id')
+      .references(() => facultiesTable.id, {
+        onDelete: 'set null',
+      }),
 
-  departmentId: uuid('department_id')
-    .references(() => departmentsTable.id, {
-      onDelete: 'set null',
-    }),
+    departmentId: uuid('department_id')
+      .references(() => departmentsTable.id, {
+        onDelete: 'set null',
+      }),
 
-  level: integer('level'),
+    level: integer('level'),
 
-  createdAt: timestamp('created_at')
-    .defaultNow()
-    .notNull(),
-});
+    role: text('role')
+      .default('STUDENT')
+      .notNull(),
+
+    status: text('status')
+      .default('ACTIVE')
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    roleIdx: index('users_role_idx').on(table.role),
+    statusIdx: index('users_status_idx').on(table.status),
+    facultyIdIdx: index('users_faculty_id_idx').on(table.facultyId),
+    departmentIdIdx: index('users_department_id_idx').on(table.departmentId),
+    levelIdx: index('users_level_idx').on(table.level),
+  })
+);
 
 // =====================================================
 // REFRESH TOKENS
@@ -264,7 +318,16 @@ export const coursesTable = pgTable(
 
     semester: text('semester')
       .notNull(),
-  }
+
+    isActive: boolean('is_active')
+      .default(true)
+      .notNull(),
+  },
+  (table) => ({
+    departmentIdIdx: index('courses_department_id_idx').on(table.departmentId),
+    codeIdx: index('courses_code_idx').on(table.code),
+    isActiveIdx: index('courses_is_active_idx').on(table.isActive),
+  })
 );
 
 // =====================================================
@@ -307,7 +370,16 @@ export const questionsTable = pgTable(
     difficulty: text('difficulty')
       .default('medium')
       .notNull(),
-  }
+
+    isActive: boolean('is_active')
+      .default(true)
+      .notNull(),
+  },
+  (table) => ({
+    courseIdIdx: index('questions_course_id_idx').on(table.courseId),
+    typeIdx: index('questions_type_idx').on(table.type),
+    isActiveIdx: index('questions_is_active_idx').on(table.isActive),
+  })
 );
 
 // =====================================================
@@ -550,7 +622,7 @@ export const supportRequestsTable = pgTable(
       .notNull(),
 
     status: text('status')
-      .default('open')
+      .default('OPEN')
       .notNull(),
 
     priority: text('priority')
@@ -564,7 +636,13 @@ export const supportRequestsTable = pgTable(
     updatedAt: timestamp('updated_at')
       .defaultNow()
       .notNull(),
-  }
+  },
+  (table) => ({
+    userIdIdx: index('support_requests_user_id_idx').on(table.userId),
+    statusIdx: index('support_requests_status_idx').on(table.status),
+    priorityIdx: index('support_requests_priority_idx').on(table.priority),
+    updatedAtIdx: index('support_requests_updated_at_idx').on(table.updatedAt),
+  })
 );
 
 export const supportMessagesTable = pgTable(
@@ -596,5 +674,158 @@ export const supportMessagesTable = pgTable(
     createdAt: timestamp('created_at')
       .defaultNow()
       .notNull(),
-  }
+  },
+  (table) => ({
+    requestIdIdx: index('support_messages_request_id_idx').on(table.requestId),
+    senderIdIdx: index('support_messages_sender_id_idx').on(table.senderId),
+  })
+);
+
+// =====================================================
+// SUPPORT ATTACHMENTS
+// =====================================================
+
+export const supportAttachmentsTable = pgTable(
+  'support_attachments',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    requestId: uuid('request_id')
+      .references(() => supportRequestsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    messageId: uuid('message_id')
+      .references(() => supportMessagesTable.id, {
+        onDelete: 'cascade',
+      }),
+
+    uploadedBy: uuid('uploaded_by')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    fileName: text('file_name')
+      .notNull(),
+
+    mimeType: text('mime_type')
+      .notNull(),
+
+    size: integer('size')
+      .notNull(),
+
+    storageKey: text('storage_key')
+      .notNull(),
+
+    url: text('url')
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    requestIdIdx: index('support_attachments_request_id_idx').on(table.requestId),
+    uploadedByIdx: index('support_attachments_uploaded_by_idx').on(table.uploadedBy),
+  })
+);
+
+// =====================================================
+// AUDIT LOGS
+// =====================================================
+
+export const auditLogsTable = pgTable(
+  'audit_logs',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    adminUserId: uuid('admin_user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    action: text('action')
+      .notNull(),
+
+    resourceType: text('resource_type')
+      .notNull(),
+
+    resourceId: text('resource_id'),
+
+    metadata: jsonb('metadata')
+      .default({})
+      .notNull(),
+
+    ipAddress: text('ip_address'),
+
+    userAgent: text('user_agent'),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    adminUserIdIdx: index('audit_logs_admin_user_id_idx').on(table.adminUserId),
+    actionIdx: index('audit_logs_action_idx').on(table.action),
+    resourceTypeIdx: index('audit_logs_resource_type_idx').on(table.resourceType),
+    createdAtIdx: index('audit_logs_created_at_idx').on(table.createdAt),
+  })
+);
+
+// =====================================================
+// BROADCAST NOTIFICATIONS
+// =====================================================
+
+export const broadcastsTable = pgTable(
+  'broadcasts',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    adminUserId: uuid('admin_user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    title: text('title')
+      .notNull(),
+
+    body: text('body')
+      .notNull(),
+
+    targetType: text('target_type')
+      .notNull(),
+
+    targetFilter: jsonb('target_filter')
+      .default({})
+      .notNull(),
+
+    recipientCount: integer('recipient_count')
+      .default(0)
+      .notNull(),
+
+    status: text('status')
+      .default('sent')
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+
+    sentAt: timestamp('sent_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    adminUserIdIdx: index('broadcasts_admin_user_id_idx').on(table.adminUserId),
+    statusIdx: index('broadcasts_status_idx').on(table.status),
+    createdAtIdx: index('broadcasts_created_at_idx').on(table.createdAt),
+  })
 );

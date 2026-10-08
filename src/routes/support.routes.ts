@@ -4,10 +4,14 @@ import {
   listUserSupportRequests,
   getSupportRequestDetails,
   addSupportMessage,
-  updateSupportStatus, 
+  updateSupportStatus,
+  uploadSupportAttachment,
+  downloadSupportAttachment,
 } from '../controllers/support.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { validate } from '../middlewares/validate.middleware.js';
+import { uploadAttachment } from '../services/storage/storageService.js';
+import { attachmentUploadRateLimiter } from '../middlewares/rateLimit.middleware.js';
 import {
   createSupportRequestSchema,
   addSupportMessageSchema,
@@ -40,6 +44,21 @@ router.patch(
   protect,
   validate(updateSupportStatusSchema),
   updateSupportStatus
+);
+
+// Support attachments
+router.post(
+  '/requests/:requestId/attachments',
+  protect,
+  attachmentUploadRateLimiter,
+  uploadAttachment.single('file'),
+  uploadSupportAttachment
+);
+
+router.get(
+  '/requests/:requestId/attachments/:attachmentId/file',
+  protect,
+  downloadSupportAttachment
 );
 
 export default router;

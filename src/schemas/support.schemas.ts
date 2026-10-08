@@ -38,6 +38,18 @@ export const addSupportMessageSchema = z.object({
 
 export const updateSupportStatusSchema = z.object({
   body: z.object({
-    status: z.enum(['open', 'in_progress', 'resolved', 'closed']),
+    status: z.enum([
+      'open',
+      'in_progress',
+      'resolved',
+      'closed',
+      'OPEN',
+      'AI_HANDLING',
+      'WAITING_FOR_ADMIN',
+      'IN_PROGRESS',
+      'WAITING_FOR_USER',
+      'RESOLVED',
+      'CLOSED',
+    ]),
   }),
 });

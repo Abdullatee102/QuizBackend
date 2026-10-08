@@ -184,14 +184,15 @@ export const loginSchema = z.object({
 });
 
 export const refreshTokenSchema = z.object({
-  body: z.object({
-    refreshToken: z
-      .string()
-      .min(
-        1,
-        'Refresh token is required'
-      ),
-  }),
+  body: z
+    .object({
+      refreshToken: z.string().optional(),
+      token: z.string().optional(),
+    })
+    .refine((data) => data.refreshToken || data.token, {
+      message: 'Refresh token is required',
+      path: ['refreshToken'],
+    }),
 });
 
 export const forgotPasswordSchema = z.object({

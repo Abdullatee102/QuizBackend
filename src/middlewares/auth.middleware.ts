@@ -1,5 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { eq } from 'drizzle-orm';
+import { db } from '../db/index.js';
+import { usersTable } from '../db/schema.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET === 'fallback-secret-key') {
@@ -12,6 +15,8 @@ export interface UserPayload {
   userId?: number | string;
   phoneNumber?: string | null;
   email?: string | null;
+  role?: string;
+  status?: string;
   [key: string]: any;
 }
 
@@ -20,7 +25,11 @@ export interface AuthenticatedRequest extends Request {
   user?: UserPayload;
 }
 
-export const protect = (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+export const protect = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -44,7 +53,48 @@ export const protect = (req: AuthenticatedRequest, res: Response, next: NextFunc
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as UserPayload;
-    req.user = decoded; 
+    const userId = decoded.id || decoded.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Not authorized, invalid token payload',
+      });
+      return;
+    }
+
+    // Live account status verification from DB
+    const [user] = await db
+      .select({
+        id: usersTable.id,
+        role: usersTable.role,
+        status: usersTable.status,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId as any));
+
+    if (!user) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Not authorized, user account does not exist',
+      });
+      return;
+    }
+
+    if (user.status !== 'ACTIVE') {
+      res.status(403).json({
+        status: 'fail',
+        message: `Account is ${user.status.toLowerCase()}. Access denied.`,
+      });
+      return;
+    }
+
+    req.user = {
+      ...decoded,
+      id: user.id,
+      role: user.role,
+      status: user.status,
+    };
     next();
   } catch (error) {
     res.status(401).json({

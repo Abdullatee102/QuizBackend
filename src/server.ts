@@ -15,6 +15,7 @@ import notificationRoutes from './routes/notification.routes.js';
 import messageRoutes from './routes/message.routes.js';
 import supportRoutes from './routes/support.routes.js';
 import aiRoutes from './routes/ai.routes.js';
+import adminRoutes from './routes/admin/index.js';
 import { socketService } from './socket/index.js';
 
 // =====================================================
@@ -42,10 +43,20 @@ app.use(express.json({ limit: '10mb' }));
 // =====================================================
 // STEP 3: CORS CONFIGURATION
 // =====================================================
-const allowedOrigins =
+const baseOrigins =
   envConfig.CORS_ORIGIN === '*'
     ? '*'
     : envConfig.CORS_ORIGIN.split(',').map((o) => o.trim());
+
+const allowedOrigins: string[] | '*' =
+  baseOrigins === '*'
+    ? '*'
+    : [
+        ...baseOrigins,
+        ...(envConfig.ADMIN_WEB_ORIGIN
+          ? envConfig.ADMIN_WEB_ORIGIN.split(',').map((o) => o.trim())
+          : []),
+      ];
 
 app.use(
   cors({
@@ -78,6 +89,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/admin', adminRoutes);
 
 // =====================================================
 // STEP 6: HEALTH CHECK ENDPOINTS (/health and /api/health)

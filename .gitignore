@@ -19,3 +19,7 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
+# User uploads
+uploads/
+
+

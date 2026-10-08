@@ -1,5 +1,8 @@
 import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
+import { db } from '../db/index.js';
+import { usersTable } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
 import { OAuth2Client } from 'google-auth-library';
 import logger from '../config/logger.js';
 import { authService } from '../services/authService.js';
@@ -296,6 +299,15 @@ export const login = async (
     return;
   }
 
+  if (user.status && user.status !== 'ACTIVE') {
+    logger.warn(`[LOGIN] Blocked login attempt for ${user.status} user: ${identifier}`);
+    res.status(403).json({
+      status: 'fail',
+      message: `Account is ${user.status.toLowerCase()}. Please contact support.`,
+    });
+    return;
+  }
+
   const tokens =
     await authService.generateAuthTokens(
       {
@@ -304,6 +316,7 @@ export const login = async (
           user.email,
         phoneNumber:
           user.phoneNumber,
+        role: user.role || 'STUDENT',
       }
     );
 
@@ -422,9 +435,7 @@ export const refreshToken = async (
   req: AuthenticatedRequest,
   res: Response
 ): Promise<void> => {
-  const {
-    refreshToken: token,
-  } = req.body;
+  const token = req.body?.refreshToken || req.body?.token;
 
   if (!token) {
     logger.warn(
@@ -455,7 +466,31 @@ export const refreshToken = async (
       message:
         'Invalid or expired refresh token.',
     });
+    return;
+  }
 
+  const userId = decoded.id || decoded.userId;
+  const [user] = await db
+    .select({
+      id: usersTable.id,
+      email: usersTable.email,
+      phoneNumber: usersTable.phoneNumber,
+      role: usersTable.role,
+      status: usersTable.status,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId as any));
+
+  if (!user || user.status !== 'ACTIVE') {
+    logger.warn(
+      `[REFRESH TOKEN] Blocked refresh attempt for ${user ? user.status : 'non-existent'} user: ${userId}`
+    );
+    res.status(403).json({
+      status: 'fail',
+      message: user
+        ? `Account is ${user.status.toLowerCase()}. Access denied.`
+        : 'User account does not exist.',
+    });
     return;
   }
 
@@ -466,16 +501,17 @@ export const refreshToken = async (
   const tokens =
     await authService.generateAuthTokens(
       {
-        id: decoded.id,
+        id: user.id,
         email:
-          decoded.email,
+          user.email,
         phoneNumber:
-          decoded.phoneNumber,
+          user.phoneNumber,
+        role: user.role || 'STUDENT',
       }
     );
 
   logger.info(
-    `[REFRESH TOKEN] Tokens successfully rotated for user ID: ${decoded.id}`
+    `[REFRESH TOKEN] Tokens successfully rotated for user ID: ${user.id}`
   );
 
   res.status(200).json({

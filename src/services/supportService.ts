@@ -3,6 +3,7 @@ import { db } from '../db/index.js';
 import {
   supportRequestsTable,
   supportMessagesTable,
+  supportAttachmentsTable,
   usersTable,
 } from '../db/schema.js';
 import { socketService } from '../socket/index.js';
@@ -146,9 +147,26 @@ export const supportService = {
       .where(eq(supportMessagesTable.requestId, requestId as any))
       .orderBy(asc(supportMessagesTable.createdAt));
 
+    const attachments = await db
+      .select({
+        id: supportAttachmentsTable.id,
+        requestId: supportAttachmentsTable.requestId,
+        messageId: supportAttachmentsTable.messageId,
+        uploadedBy: supportAttachmentsTable.uploadedBy,
+        fileName: supportAttachmentsTable.fileName,
+        mimeType: supportAttachmentsTable.mimeType,
+        size: supportAttachmentsTable.size,
+        url: supportAttachmentsTable.url,
+        createdAt: supportAttachmentsTable.createdAt,
+      })
+      .from(supportAttachmentsTable)
+      .where(eq(supportAttachmentsTable.requestId, requestId as any))
+      .orderBy(desc(supportAttachmentsTable.createdAt));
+
     return {
       ...request,
       messages,
+      attachments,
     };
   },
 
@@ -244,5 +262,52 @@ export const supportService = {
       .returning();
 
     return updated;
+  },
+
+  // =====================================================
+  // ATTACHMENTS
+  // =====================================================
+  addSupportAttachment: async (params: {
+    requestId: string;
+    uploadedBy: string | number;
+    fileName: string;
+    mimeType: string;
+    size: number;
+    storageKey: string;
+    url: string;
+    messageId?: string;
+  }) => {
+    const [attachment] = await db
+      .insert(supportAttachmentsTable)
+      .values({
+        requestId: params.requestId as any,
+        uploadedBy: params.uploadedBy as any,
+        messageId: params.messageId ? (params.messageId as any) : null,
+        fileName: params.fileName,
+        mimeType: params.mimeType,
+        size: params.size,
+        storageKey: params.storageKey,
+        url: params.url,
+      })
+      .returning();
+
+    return attachment;
+  },
+
+  getSupportAttachment: async (attachmentId: string) => {
+    const [attachment] = await db
+      .select()
+      .from(supportAttachmentsTable)
+      .where(eq(supportAttachmentsTable.id, attachmentId as any));
+
+    return attachment || null;
+  },
+
+  getTicketAttachments: async (requestId: string) => {
+    return await db
+      .select()
+      .from(supportAttachmentsTable)
+      .where(eq(supportAttachmentsTable.requestId, requestId as any))
+      .orderBy(desc(supportAttachmentsTable.createdAt));
   },
 };
