@@ -140,12 +140,29 @@ export const supportService = {
           fullName: usersTable.fullName,
           username: usersTable.username,
           photoURL: usersTable.photoURL,
+          role: usersTable.role,
         },
       })
       .from(supportMessagesTable)
       .leftJoin(usersTable, eq(supportMessagesTable.senderId, usersTable.id))
       .where(eq(supportMessagesTable.requestId, requestId as any))
       .orderBy(asc(supportMessagesTable.createdAt));
+
+    const normalizedMessages = messages.map((m) => {
+      if (m.senderRole === 'ai_assistant' || m.senderRole === 'assistant') {
+        return {
+          ...m,
+          sender: {
+            id: 'ai-assistant',
+            fullName: 'Brain Buzz AI',
+            username: 'ai_assistant',
+            photoURL: null,
+            role: 'AI',
+          },
+        };
+      }
+      return m;
+    });
 
     const attachments = await db
       .select({
@@ -165,7 +182,7 @@ export const supportService = {
 
     return {
       ...request,
-      messages,
+      messages: normalizedMessages,
       attachments,
     };
   },
@@ -217,13 +234,23 @@ export const supportService = {
         fullName: usersTable.fullName,
         username: usersTable.username,
         photoURL: usersTable.photoURL,
+        role: usersTable.role,
       })
       .from(usersTable)
       .where(eq(usersTable.id, userId as any));
 
+    const isAiSender = senderRole === 'ai_assistant' || senderRole === 'assistant';
     const fullMessage = {
       ...createdMsg,
-      sender: sender || null,
+      sender: isAiSender
+        ? {
+            id: 'ai-assistant',
+            fullName: 'Brain Buzz AI',
+            username: 'ai_assistant',
+            photoURL: null,
+            role: 'AI',
+          }
+        : sender || null,
     };
 
     // Emit real-time event to support room

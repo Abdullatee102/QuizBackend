@@ -302,14 +302,14 @@ export const replyToSupportRequest = async (
         String(request.userId),
         'Support Ticket Update',
         `A support agent replied to your ticket: "${request.subject}"`,
-        { ticketId: requestId }
+        { ticketId: requestId, requestId }
       );
       await notificationService.createNotification({
         userId: String(request.userId),
         type: 'support_update',
         title: 'Support Ticket Update',
         body: `Support response received for "${request.subject}"`,
-        data: { ticketId: requestId },
+        data: { ticketId: requestId, requestId },
       });
     } catch {
       // non-blocking

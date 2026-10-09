@@ -1,6 +1,15 @@
 /**
  * AI Support Assistant Service Abstraction
+ * Brain Buzz Intelligent Support
  */
+
+import { geminiClient } from './geminiClient.js';
+import {
+  SUPPORT_ASSISTANT_SYSTEM_INSTRUCTION,
+  buildSupportAssistantPrompt,
+} from './prompts.js';
+import type { SupportAssistantInput, SupportAssistantOutput } from './types.js';
+import logger from '../../config/logger.js';
 
 export interface SupportTriageRequest {
   subject: string;
@@ -14,35 +23,99 @@ export interface SupportTriageResult {
   automatedReply?: string;
 }
 
-export interface SupportAIResponse {
-  answer: string;
-  needsHumanSupport: boolean;
-  suggestedAction: string | null;
-  status: 'success' | 'ai_unavailable';
-}
-
 export class SupportAssistantAI {
   async triageRequest(request: SupportTriageRequest): Promise<SupportTriageResult> {
+    const text = `${request.subject} ${request.initialMessage}`.toLowerCase();
     const isUrgent =
-      request.subject.toLowerCase().includes('urgent') ||
-      request.subject.toLowerCase().includes('error') ||
-      request.subject.toLowerCase().includes('login');
+      text.includes('urgent') ||
+      text.includes('exam in') ||
+      text.includes('locked out') ||
+      text.includes('banned');
 
     return {
       suggestedCategory: request.category || 'general',
       priority: isUrgent ? 'high' : 'medium',
       automatedReply:
-        'Thank you for reaching out to QuizApp Support. An academic representative will review your request shortly.',
+        'Thank you for reaching out to Brain Buzz Support. Our AI assistant is reviewing your ticket and support staff are on standby.',
     };
   }
 
   async generateSupportResponse(
-    input: string | { userMessage: string }
-  ): Promise<SupportAIResponse> {
-    const message = typeof input === 'string' ? input : input.userMessage || '';
-    const lower = message.toLowerCase().trim();
+    input: string | SupportAssistantInput
+  ): Promise<SupportAssistantOutput> {
+    const normalizedInput: SupportAssistantInput =
+      typeof input === 'string' ? { userMessage: input } : input;
+    const message = (normalizedInput.userMessage || '').trim();
+    const lower = message.toLowerCase();
 
-    // 1. Definite escalation triggers (issues requiring human administration)
+    // =========================================================================
+    // STEP 1: If Gemini AI is active and configured, query Gemini with full context
+    // =========================================================================
+    if (geminiClient.isAvailable()) {
+      try {
+        const geminiResult = await geminiClient.generateStructuredContent<{
+          answer: string;
+          needsHumanSupport: boolean;
+          suggestedAction?: string | null;
+        }>({
+          systemInstruction: SUPPORT_ASSISTANT_SYSTEM_INSTRUCTION,
+          prompt: buildSupportAssistantPrompt(normalizedInput),
+          featureName: 'SupportAssistant',
+          responseSchema: {
+            type: 'object',
+            properties: {
+              answer: { type: 'string' },
+              needsHumanSupport: { type: 'boolean' },
+              suggestedAction: { type: 'string', nullable: true },
+            },
+            required: ['answer', 'needsHumanSupport'],
+          },
+        });
+
+        if (geminiResult.success && geminiResult.data?.answer) {
+          const needsHuman = Boolean(geminiResult.data.needsHumanSupport);
+          return {
+            answer: geminiResult.data.answer.trim(),
+            needsHumanSupport: needsHuman,
+            suggestedAction:
+              geminiResult.data.suggestedAction ||
+              (needsHuman ? 'escalate_to_admin' : 'continue_chat'),
+            status: 'success',
+          };
+        }
+
+        logger.warn(
+          `[SUPPORT AI] Gemini response failed (${geminiResult.error}), falling back to deterministic knowledge base.`
+        );
+      } catch (err: any) {
+        logger.error(`[SUPPORT AI] Gemini call exception: ${err?.message || err}`);
+      }
+    }
+
+    // =========================================================================
+    // STEP 2: Grounded Deterministic Knowledge Base (Fallback & Strict Safety)
+    // =========================================================================
+
+    // A. Friendly conversational greetings — DO NOT escalate to admin!
+    const isGreeting =
+      /^(hi|hey|hello|good\s*(morning|afternoon|evening|day)|greetings|yo|sup)(\s+.*)?$/i.test(
+        lower
+      ) ||
+      lower === 'hi' ||
+      lower === 'hey' ||
+      lower === 'hello';
+
+    if (isGreeting) {
+      return {
+        answer:
+          'Hello! I am your Brain Buzz Support Assistant. How can I assist you today with your courses, practice quizzes, quiz reviews, achievements, or account settings?',
+        needsHumanSupport: false,
+        suggestedAction: 'continue_chat',
+        status: 'success',
+      };
+    }
+
+    // B. Explicit escalation triggers requiring human administration
     const requiresEscalation =
       lower.includes('wrong result') ||
       lower.includes('incorrect result') ||
@@ -52,113 +125,161 @@ export class SupportAssistantAI {
       lower.includes('points disappeared') ||
       lower.includes('lost points') ||
       lower.includes('missing points') ||
-      lower.includes('achievement did not unlock') ||
-      lower.includes('achievement not unlocked') ||
-      lower.includes('achievement bug') ||
       lower.includes('suspended') ||
       lower.includes('disabled') ||
       lower.includes('banned') ||
-      lower.includes('incorrect answer') ||
-      lower.includes('wrong answer in question') ||
-      lower.includes('question is wrong') ||
+      lower.includes('incorrect answer in question') ||
       lower.includes('question error') ||
       lower.includes('database correction') ||
       lower.includes('account correction') ||
       lower.includes('moderation') ||
       lower.includes('report abuse') ||
       lower.includes('harassment') ||
-      lower.includes('human') ||
-      lower.includes('agent') ||
-      lower.includes('admin') ||
+      lower.includes('talk to human') ||
+      lower.includes('speak with human') ||
+      lower.includes('speak to agent') ||
+      lower.includes('human agent') ||
+      lower.includes('admin please') ||
       lower.includes('representative') ||
-      lower.includes('billing') ||
+      lower.includes('billing error') ||
       lower.includes('refund');
 
     if (requiresEscalation) {
       return {
         answer:
-          'I have recorded and escalated your inquiry to an Academic Administrator for review (Ticket status: WAITING_FOR_ADMIN). An administrator will inspect the details and follow up with a resolution. AI assistants cannot perform manual database or score corrections.',
+          'I have recorded and escalated your inquiry to our Support Administration team for review (Ticket status: WAITING_FOR_ADMIN). A staff member will inspect the account and assist you directly. AI assistants cannot perform manual database or score corrections.',
         needsHumanSupport: true,
         suggestedAction: 'escalate_to_admin',
         status: 'success',
       };
     }
 
-    // 2. Confident answers for standard platform guidance
-    if (lower.includes('start a quiz') || lower.includes('take a quiz') || lower.includes('practice by faculty') || lower.includes('cbt') || lower.includes('practice')) {
+    // C. Grounded answers for standard Brain Buzz capabilities
+
+    // Quiz practice & modes
+    if (
+      lower.includes('start a quiz') ||
+      lower.includes('take a quiz') ||
+      lower.includes('practice by faculty') ||
+      lower.includes('cbt') ||
+      lower.includes('theory')
+    ) {
       return {
         answer:
-          'To start a practice quiz, navigate to the Courses section, select your Faculty and Department, select your current Level and Semester, and tap "Start Practice Quiz". You can choose between CBT (multiple choice) or Theory assessment modes.',
+          'To start practice on Brain Buzz, go to the Courses section, choose your Faculty and Department, select your Level and Semester, and tap "Start Practice Quiz". You can select between CBT (multiple choice with instant review) and Theory assessment modes.',
         needsHumanSupport: false,
         suggestedAction: 'continue_chat',
         status: 'success',
       };
     }
 
-    if (lower.includes('history') || lower.includes('past quiz') || lower.includes('previous score')) {
+    // Quiz review & correct/missed answers
+    if (
+      lower.includes('quiz review') ||
+      lower.includes('review') ||
+      lower.includes('wrong answer') ||
+      lower.includes('correct answer') ||
+      lower.includes('green border') ||
+      lower.includes('red border') ||
+      lower.includes('deceiving')
+    ) {
       return {
         answer:
-          'You can review your completed quiz attempts, scores, and performance breakdowns under the "Quiz History" section on your Profile screen.',
+          'In Brain Buzz Quiz Review, questions you missed are marked with a red border around your selected option, and the correct option is highlighted with a green border so you can easily learn the right answer. Completed quizzes can be reviewed anytime under Quiz History in Profile.',
         needsHumanSupport: false,
         suggestedAction: 'continue_chat',
         status: 'success',
       };
     }
 
-    if (lower.includes('achievement') || lower.includes('badge') || lower.includes('trophy')) {
+    // Quiz history
+    if (
+      lower.includes('history') ||
+      lower.includes('past quiz') ||
+      lower.includes('previous score') ||
+      lower.includes('attempts')
+    ) {
       return {
         answer:
-          'Achievements are unlocked automatically as you complete quizzes, maintain practice streaks, and score top marks. You can view all unlocked and in-progress badges on your Profile under "Achievements".',
+          'You can review all your completed CBT and Theory quiz attempts, dates, and performance breakdowns under "Quiz History" on your Profile screen.',
         needsHumanSupport: false,
         suggestedAction: 'continue_chat',
         status: 'success',
       };
     }
 
-    if (lower.includes('leaderboard') || lower.includes('ranking') || lower.includes('rank')) {
+    // Profile & department/faculty/level
+    if (
+      lower.includes('profile') ||
+      lower.includes('department') ||
+      lower.includes('faculty') ||
+      lower.includes('level') ||
+      lower.includes('recommended')
+    ) {
       return {
         answer:
-          'The Leaderboard ranks scholars based on total points accumulated from verified quiz answers across faculties. Scores update periodically after each quiz submission.',
+          'You can configure your Faculty, Department, and Level under "Edit Profile" in the Profile tab. Setting these details is required so Brain Buzz can recommend your exact semester courses and display your faculty code on the Leaderboard.',
         needsHumanSupport: false,
         suggestedAction: 'continue_chat',
         status: 'success',
       };
     }
 
-    if (lower.includes('notification') || lower.includes('inbox') || lower.includes('announcement')) {
+    // Leaderboard
+    if (
+      lower.includes('leaderboard') ||
+      lower.includes('ranking') ||
+      lower.includes('faculty code') ||
+      lower.includes('fci') ||
+      lower.includes('rank')
+    ) {
       return {
         answer:
-          'System announcements, timetable updates, achievement unlocks, and support ticket replies appear in your Notification Inbox (bell icon in top navigation).',
+          'The Leaderboard ranks scholars and faculties globally based on verified quiz points. Each scholar’s avatar displays their configured faculty code (e.g., FCI) or their first initial if the profile is not yet configured.',
         needsHumanSupport: false,
         suggestedAction: 'continue_chat',
         status: 'success',
       };
     }
 
-    if (lower.includes('contact support') || lower.includes('help desk') || lower.includes('open a ticket')) {
+    // Achievements & streaks
+    if (
+      lower.includes('achievement') ||
+      lower.includes('badge') ||
+      lower.includes('streak')
+    ) {
       return {
         answer:
-          'You are currently in the Support Desk! You can submit inquiries about academic issues, courses, or technical difficulties right here, and our Academic Support team will assist you.',
+          'Brain Buzz features 30 achievements (such as Early Bird, Quiz Legend, Century, and practice streaks) that unlock automatically as you complete quizzes. You can track your badges under "Achievements" on your Profile screen.',
         needsHumanSupport: false,
         suggestedAction: 'continue_chat',
         status: 'success',
       };
     }
 
-    if (lower.includes('profile') || lower.includes('department') || lower.includes('faculty') || lower.includes('level')) {
+    // Opportunities & communities
+    if (
+      lower.includes('scholarship') ||
+      lower.includes('organisation') ||
+      lower.includes('tutorial') ||
+      lower.includes('opportunity') ||
+      lower.includes('community') ||
+      lower.includes('whatsapp') ||
+      lower.includes('telegram')
+    ) {
       return {
         answer:
-          'You can view and update your academic details (faculty, department, level, and bio) under the Profile tab by selecting "Edit Academic Profile".',
+          'You can explore upcoming Scholarships, Student Organisations, and Tutorials in the Opportunities section from your Profile. You can also join the official Brain Buzz WhatsApp and Telegram student communities directly from the Profile screen.',
         needsHumanSupport: false,
         suggestedAction: 'continue_chat',
         status: 'success',
       };
     }
 
-    // 3. Fallback for unclassified inquiries - escalate safely
+    // D. Safe Fallback — When knowledge is not confidently matched, escalate safely
     return {
       answer:
-        'Thank you for reaching out. I have shared your inquiry with an Academic Administrator so they can review your question with specific context (Ticket status: WAITING_FOR_ADMIN).',
+        'Thank you for reaching out. I have shared your inquiry with our Support Administration team so they can review your question with specific context (Ticket status: WAITING_FOR_ADMIN). A representative will reply to you shortly.',
       needsHumanSupport: true,
       suggestedAction: 'escalate_to_admin',
       status: 'success',
