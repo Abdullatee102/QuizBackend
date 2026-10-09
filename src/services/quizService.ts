@@ -868,7 +868,9 @@ export const quizService = {
 
               feedback: isCorrect
                 ? 'Correct answer!'
-                : 'Incorrect answer.',
+                : studentAnswer
+                ? 'Incorrect answer.'
+                : 'Unanswered.',
             };
           }
 
