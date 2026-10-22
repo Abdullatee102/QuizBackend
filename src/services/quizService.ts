@@ -8,7 +8,7 @@ import {
   type GradingPoint,
 } from '../db/schema.js';
 
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { aiProvider } from './ai/index.js';
 
 // =====================================================
@@ -1145,11 +1145,9 @@ export const quizService = {
       query = query.where(and(...conditions)) as any;
     }
 
-    const all = await query.limit(limit * 2);
-    const shuffled = all.sort(() => 0.5 - Math.random());
-    const selected = shuffled.slice(0, limit);
+    const selected: any[] = await (query.orderBy(sql`RANDOM()`) as any).limit(limit);
 
-    return selected.map((q) => {
+    return selected.map((q: any) => {
       if (q.type === 'cbt' && Array.isArray(q.options) && q.options.length > 1) {
         return {
           ...q,
