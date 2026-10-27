@@ -7,6 +7,7 @@ import {
   usersTable,
 } from '../db/schema.js';
 import { socketService } from '../socket/index.js';
+import logger from '../config/logger.js';
 
 export const supportService = {
   // =====================================================
@@ -258,6 +259,22 @@ export const supportService = {
       socketService.emitToRoom(`support:${requestId}`, 'new_support_message', fullMessage);
     } catch {
       // Non-blocking if socket is not connected
+    }
+
+    // Notify ticket owner if reply is from staff or AI
+    if (String(userId) !== String(request.userId)) {
+      const senderName = isAiSender ? 'Brain Buzz AI' : (sender?.fullName || 'Support Team');
+      import('./notificationService.js').then(({ notificationService }) => {
+        notificationService.createNotification({
+          userId: String(request.userId),
+          type: 'support',
+          title: `Support: ${senderName}`,
+          body: message.substring(0, 120),
+          data: { url: '/support', requestId },
+        }).catch((err: any) => {
+          logger.error(`[SUPPORT NOTIFICATION ERROR]: ${err.message}`);
+        });
+      }).catch(() => {});
     }
 
     return fullMessage;

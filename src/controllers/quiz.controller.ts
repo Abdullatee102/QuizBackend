@@ -111,6 +111,15 @@ export const getCoursesList = async (
     semester,
   } = req.query;
 
+  if (!departmentId || departmentId === 'mixed') {
+    res.status(200).json({
+      status: 'success',
+      count: 0,
+      data: [],
+    });
+    return;
+  }
+
   try {
     const parsedLevel =
       typeof level === 'string'
@@ -327,15 +336,17 @@ export const getMixedQuestionsHandler = async (
   req: AuthenticatedRequest,
   res: Response
 ): Promise<void> => {
-  const { level, type, limit } = req.query;
+  const { level, type, limit, semester } = req.query;
   const parsedLimit = limit ? parseInt(limit as string, 10) : 30;
+  const parsedSemester = typeof semester === 'string' && semester.trim() ? semester.trim() : undefined;
 
   try {
-    logger.info(`[QUIZ] Fetching mixed questions level=${level} type=${type} limit=${parsedLimit}`);
+    logger.info(`[QUIZ] Fetching mixed questions level=${level} type=${type} limit=${parsedLimit} semester=${parsedSemester || 'all'}`);
     const questions = await quizService.getMixedQuestions(
       level as string,
       normalizeQuizType(type),
-      parsedLimit
+      parsedLimit,
+      parsedSemester
     );
 
     res.status(200).json({

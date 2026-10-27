@@ -1152,8 +1152,9 @@ export const authService = {
 
           category:
             String(
-              quizData.category ||
-                course.code
+              quizData.courseId === 'mixed'
+                ? 'MIXED'
+                : (quizData.category || course.code)
             ),
 
           correctAnswers:
@@ -1924,8 +1925,14 @@ export const authService = {
                 )
               : 0;
 
+          const isMixed =
+            String(quiz.category).toUpperCase() === 'MIXED' ||
+            String(quiz.courseCode).toUpperCase() === 'MIXED';
+
           return {
             ...quiz,
+            courseCode: isMixed ? 'MIXED' : quiz.courseCode,
+            courseTitle: isMixed ? 'Mixed Faculties Question' : quiz.courseTitle,
             percentage,
           };
         }

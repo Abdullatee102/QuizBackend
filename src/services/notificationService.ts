@@ -12,6 +12,8 @@ import {
 } from 'drizzle-orm';
 
 import logger from '../config/logger.js';
+import { socketService } from '../socket/index.js';
+
 
 // =====================================================
 // TYPES
@@ -174,6 +176,28 @@ export const notificationService = {
         })
         .returning();
 
+    // Emit real-time event so the mobile client invalidates its notifications cache
+    if (notification) {
+      try {
+        socketService.emitToRoom(`user:${userId}`, 'notification:new', {
+          id: notification.id,
+          type: notification.type,
+          title: notification.title,
+          body: notification.body,
+          data: notification.data,
+          isRead: false,
+          createdAt: notification.createdAt,
+        });
+      } catch (socketErr: any) {
+        logger.warn(`[NOTIFICATION] Failed to emit socket event: ${socketErr.message}`);
+      }
+
+      // Deliver push notification to physical devices outside the app
+      notificationService.sendToUser(userId, title, body, data).catch((pushErr: any) => {
+        logger.warn(`[NOTIFICATION] Push delivery failed for user ${userId}: ${pushErr.message}`);
+      });
+    }
+
     return notification;
   },
 
@@ -233,6 +257,8 @@ sendPushNotification: async ({
             sound: 'default',
             title,
             body,
+            channelId: 'default',
+            priority: 'high',
             data,
           }),
         }

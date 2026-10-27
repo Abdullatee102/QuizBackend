@@ -577,6 +577,10 @@ export const quizService = {
     level?: number,
     semester?: string
   ): Promise<any[]> => {
+    if (!departmentId || departmentId === 'mixed') {
+      return [];
+    }
+
     const conditions = [
       eq(
         coursesTable.departmentId,
@@ -1110,7 +1114,8 @@ export const quizService = {
   getMixedQuestions: async (
     level?: string,
     type?: QuizType,
-    limit: number = 30
+    limit: number = 30,
+    semester?: string
   ): Promise<any[]> => {
     let query = db
       .select({
@@ -1139,7 +1144,9 @@ export const quizService = {
         conditions.push(eq(coursesTable.level, parsedLevel));
       }
     }
-
+    if (semester) {
+      conditions.push(eq(coursesTable.semester, semester as any));
+    }
 
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as any;
