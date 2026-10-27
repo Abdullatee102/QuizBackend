@@ -49,7 +49,20 @@ export const sendOtp = async (
     return;
   }
 
-  const otpCode = authService.generateOtp(identifier);
+  let otpCode: string;
+  try {
+    otpCode = await authService.generateOtp(identifier, 'verification');
+  } catch (err: any) {
+    if (err.statusCode === 429) {
+      res.status(429).json({
+        status: 'fail',
+        message: err.message,
+        cooldownRemaining: err.cooldownRemaining,
+      });
+      return;
+    }
+    throw err;
+  }
   const maskedTarget = maskIdentifier(identifier);
 
   logger.info(`[SEND OTP] OTP generated for target: ${maskedTarget}`);
@@ -103,12 +116,12 @@ export const verifyOtp = async (
   const inputCode = (code || otp || '').trim();
   const maskedTarget = maskIdentifier(identifier);
 
-  if (
-    !authService.verifyOtpCode(
-      identifier,
-      inputCode
-    )
-  ) {
+  const isValid = await authService.verifyOtpCode(
+    identifier,
+    inputCode
+  );
+
+  if (!isValid) {
     logger.warn(
       `[VERIFY OTP] Failed attempt for target: ${maskedTarget}`
     );
@@ -544,10 +557,20 @@ export const forgotPassword =
       return;
     }
 
-    const otpCode =
-      authService.generateOtp(
-        identifier
-      );
+    let otpCode: string;
+    try {
+      otpCode = await authService.generateOtp(identifier, 'password_reset');
+    } catch (err: any) {
+      if (err.statusCode === 429) {
+        res.status(429).json({
+          status: 'fail',
+          message: err.message,
+          cooldownRemaining: err.cooldownRemaining,
+        });
+        return;
+      }
+      throw err;
+    }
 
     const maskedTarget = maskIdentifier(identifier);
 

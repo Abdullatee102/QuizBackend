@@ -1186,6 +1186,10 @@ export const quizService = {
       conditions.push(eq(questionsTable.type, type));
     }
 
+    if (conditions.length === 0) {
+      return [];
+    }
+
     return await db
       .select({
         id: questionsTable.id,
@@ -1198,7 +1202,7 @@ export const quizService = {
         sampleAnswer: questionsTable.correctAnswer,
       })
       .from(questionsTable)
-      .where(conditions.length > 0 ? and(...conditions) : undefined);
+      .where(and(...conditions));
   },
 };
 

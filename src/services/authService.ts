@@ -12,6 +12,7 @@ import {
   facultiesTable,
   departmentsTable,
   questionsTable,
+  otpsTable,
 } from '../db/schema.js';
 
 import {
@@ -21,6 +22,8 @@ import {
   desc,
   and,
   gte,
+  gt,
+  lt,
 } from 'drizzle-orm';
 
 import { quizService } from './quizService.js';
@@ -39,30 +42,9 @@ if (!REFRESH_SECRET || REFRESH_SECRET === 'fallback-refresh-secret') {
   throw new Error('[FATAL] REFRESH_SECRET environment variable is missing or insecure.');
 }
 
-interface StoredOtpRecord {
-  hash: string;
-  expiresAt: number;
-  attempts: number;
-}
-
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_OTP_ATTEMPTS = 5;
-
-const otpStore = new Map<string, StoredOtpRecord>();
-
-// Periodic cleanup of expired OTP entries
-const cleanupExpiredOtps = () => {
-  const now = Date.now();
-  for (const [key, value] of otpStore.entries()) {
-    if (value.expiresAt <= now) {
-      otpStore.delete(key);
-    }
-  }
-};
-const cleanupInterval = setInterval(cleanupExpiredOtps, 5 * 60 * 1000);
-if (cleanupInterval.unref) {
-  cleanupInterval.unref();
-}
+const OTP_RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds cooldown
 
 const normalizeQuizType = (
   value: unknown
@@ -281,75 +263,163 @@ export const authService = {
   // OTP
   // ===================================================
 
-  generateOtp: (
-    identifier: string
-  ): string => {
+  generateOtp: async (
+    identifier: string,
+    purpose: string = 'verification'
+  ): Promise<string> => {
     const normalizedId = identifier.trim().toLowerCase();
+    const now = new Date();
 
-    // Cryptographically secure 6-digit numeric OTP
+    // 1. Enforce resend cooldown (60s)
+    const recentThreshold = new Date(now.getTime() - OTP_RESEND_COOLDOWN_MS);
+    const [recentOtp] = await db
+      .select({ id: otpsTable.id, createdAt: otpsTable.createdAt })
+      .from(otpsTable)
+      .where(
+        and(
+          eq(otpsTable.identifier, normalizedId),
+          eq(otpsTable.purpose, purpose),
+          eq(otpsTable.isUsed, false),
+          gt(otpsTable.createdAt, recentThreshold)
+        )
+      )
+      .limit(1);
+
+    if (recentOtp) {
+      const elapsedSec = Math.floor((now.getTime() - new Date(recentOtp.createdAt).getTime()) / 1000);
+      const cooldownRemaining = Math.max(1, 60 - elapsedSec);
+      const error: any = new Error(`Please wait ${cooldownRemaining} seconds before requesting a new verification code.`);
+      error.statusCode = 429;
+      error.cooldownRemaining = cooldownRemaining;
+      throw error;
+    }
+
+    // 2. Invalidate previous active OTPs for the same identifier and purpose
+    await db
+      .update(otpsTable)
+      .set({ isUsed: true })
+      .where(
+        and(
+          eq(otpsTable.identifier, normalizedId),
+          eq(otpsTable.purpose, purpose),
+          eq(otpsTable.isUsed, false)
+        )
+      );
+
+    // 3. Cryptographically secure 6-digit numeric OTP
     const otpCode = crypto.randomInt(100000, 1000000).toString();
 
-    // Store SHA-256 hash with 10-minute expiry
-    const hash = crypto
+    // 4. Store SHA-256 hash with 10-minute expiry (never store plaintext OTP)
+    const otpHash = crypto
       .createHash('sha256')
       .update(otpCode)
       .digest('hex');
 
-    otpStore.set(normalizedId, {
-      hash,
-      expiresAt: Date.now() + OTP_TTL_MS,
+    const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
+
+    await db.insert(otpsTable).values({
+      identifier: normalizedId,
+      otpHash,
+      purpose,
+      expiresAt,
       attempts: 0,
+      maxAttempts: MAX_OTP_ATTEMPTS,
+      isUsed: false,
     });
+
+    // 5. Periodic cleanup of expired entries (> 24 hours old)
+    try {
+      const cleanupThreshold = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      await db
+        .delete(otpsTable)
+        .where(lt(otpsTable.expiresAt, cleanupThreshold));
+    } catch {
+      // Safe to ignore non-critical cleanup error
+    }
 
     return otpCode;
   },
 
-  verifyOtpCode: (
+  verifyOtpCode: async (
     identifier: string,
-    inputCode: string
-  ): boolean => {
+    inputCode: string,
+    purpose?: string
+  ): Promise<boolean> => {
     const normalizedId = identifier.trim().toLowerCase();
-    const storedRecord = otpStore.get(normalizedId);
+    const cleanedCode = (inputCode || '').trim();
 
-    if (!storedRecord) {
+    if (!cleanedCode || cleanedCode.length !== 6) {
       return false;
     }
 
-    // Reject if expired
-    if (Date.now() > storedRecord.expiresAt) {
-      otpStore.delete(normalizedId);
+    const now = new Date();
+
+    const conditions = [
+      eq(otpsTable.identifier, normalizedId),
+      eq(otpsTable.isUsed, false),
+      gt(otpsTable.expiresAt, now),
+    ];
+
+    if (purpose) {
+      conditions.push(eq(otpsTable.purpose, purpose));
+    }
+
+    const [record] = await db
+      .select()
+      .from(otpsTable)
+      .where(and(...conditions))
+      .orderBy(desc(otpsTable.createdAt))
+      .limit(1);
+
+    if (!record) {
       return false;
     }
 
-    // Reject if exceeded maximum attempts
-    if (storedRecord.attempts >= MAX_OTP_ATTEMPTS) {
-      otpStore.delete(normalizedId);
+    // Reject if already reached maximum attempts
+    if (record.attempts >= record.maxAttempts) {
+      await db
+        .update(otpsTable)
+        .set({ isUsed: true })
+        .where(eq(otpsTable.id, record.id));
       return false;
     }
 
-    storedRecord.attempts += 1;
+    // Increment attempt count
+    const currentAttempt = record.attempts + 1;
+    await db
+      .update(otpsTable)
+      .set({ attempts: currentAttempt })
+      .where(eq(otpsTable.id, record.id));
 
     // Hash user-provided code using SHA-256
     const inputHash = crypto
       .createHash('sha256')
-      .update(inputCode.trim())
+      .update(cleanedCode)
       .digest('hex');
 
     const inputBuf = Buffer.from(inputHash, 'hex');
-    const storedBuf = Buffer.from(storedRecord.hash, 'hex');
+    const storedBuf = Buffer.from(record.otpHash, 'hex');
 
-    if (
-      inputBuf.length !== storedBuf.length ||
-      !crypto.timingSafeEqual(inputBuf, storedBuf)
-    ) {
-      if (storedRecord.attempts >= MAX_OTP_ATTEMPTS) {
-        otpStore.delete(normalizedId);
+    const isMatch =
+      inputBuf.length === storedBuf.length &&
+      crypto.timingSafeEqual(inputBuf, storedBuf);
+
+    if (!isMatch) {
+      if (currentAttempt >= record.maxAttempts) {
+        await db
+          .update(otpsTable)
+          .set({ isUsed: true })
+          .where(eq(otpsTable.id, record.id));
       }
       return false;
     }
 
-    // Single-use: delete upon successful verification
-    otpStore.delete(normalizedId);
+    // Single-use: invalidate upon successful verification
+    await db
+      .update(otpsTable)
+      .set({ isUsed: true })
+      .where(eq(otpsTable.id, record.id));
+
     return true;
   },
 
@@ -1765,7 +1835,6 @@ export const authService = {
             id: usersTable.id,
             fullName: usersTable.fullName,
             username: usersTable.username,
-            email: usersTable.email,
             photoURL: usersTable.photoURL,
             facultyId: usersTable.facultyId,
             departmentId: usersTable.departmentId,
@@ -1804,7 +1873,6 @@ export const authService = {
             usersTable.id,
             usersTable.fullName,
             usersTable.username,
-            usersTable.email,
             usersTable.photoURL,
             usersTable.facultyId,
             usersTable.departmentId,

@@ -14,7 +14,8 @@
     "seed": "tsx src/seed.ts",
     "migrate": "node dist/scripts/migrateSchema.js",
     "bootstrap:admin": "tsx src/scripts/bootstrapAdmin.ts",
-    "test:admin": "tsx src/scripts/testAdminSecurity.ts"
+    "test:admin": "tsx src/scripts/testAdminSecurity.ts",
+    "test": "tsx --test src/tests/runner.test.ts"
   },
   "keywords": [
     "quiz",

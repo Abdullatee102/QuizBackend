@@ -829,3 +829,51 @@ export const broadcastsTable = pgTable(
     createdAtIdx: index('broadcasts_created_at_idx').on(table.createdAt),
   })
 );
+
+// =====================================================
+// OTPS (One-Time Passwords)
+// =====================================================
+
+export const otpsTable = pgTable(
+  'otps',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    identifier: text('identifier')
+      .notNull(),
+
+    otpHash: text('otp_hash')
+      .notNull(),
+
+    purpose: text('purpose')
+      .default('verification')
+      .notNull(),
+
+    expiresAt: timestamp('expires_at')
+      .notNull(),
+
+    attempts: integer('attempts')
+      .default(0)
+      .notNull(),
+
+    maxAttempts: integer('max_attempts')
+      .default(5)
+      .notNull(),
+
+    isUsed: boolean('is_used')
+      .default(false)
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    identifierIdx: index('otps_identifier_idx').on(table.identifier),
+    purposeIdx: index('otps_purpose_idx').on(table.purpose),
+    isUsedIdx: index('otps_is_used_idx').on(table.isUsed),
+    expiresAtIdx: index('otps_expires_at_idx').on(table.expiresAt),
+  })
+);

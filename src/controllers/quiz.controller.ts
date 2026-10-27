@@ -2,6 +2,10 @@ import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
 import logger from '../config/logger.js';
 import { quizService } from '../services/quizService.js';
+import { db } from '../db/index.js';
+import { quizHistoryTable } from '../db/schema.js';
+import { and, eq } from 'drizzle-orm';
+import { isAdminRole } from '../config/permissions.js';
 
 type QuizType = 'cbt' | 'theory';
 
@@ -367,10 +371,72 @@ export const getReviewQuestionsHandler = async (
   req: AuthenticatedRequest,
   res: Response
 ): Promise<void> => {
+  const userId = req.user?.id || req.user?.userId;
+  const userRole = req.user?.role;
   const { courseId } = req.params;
-  const { type, questionIds } = req.query;
+  const { type, questionIds, historyId } = req.query;
 
-  const quizType = normalizeQuizType(type);
+  if (!userId) {
+    res.status(401).json({
+      status: 'fail',
+      message: 'Unauthorized.',
+    });
+    return;
+  }
+
+  const isAdmin = isAdminRole(userRole);
+
+  let verifiedAttempt: any = null;
+
+  if (!isAdmin) {
+    if (!historyId || typeof historyId !== 'string' || historyId.trim().length === 0) {
+      res.status(403).json({
+        status: 'fail',
+        message: 'Forbidden. A completed attempt ID (historyId) is required to review quiz questions.',
+      });
+      return;
+    }
+
+    try {
+      const [attempt] = await db
+        .select()
+        .from(quizHistoryTable)
+        .where(
+          and(
+            eq(quizHistoryTable.id, historyId.trim()),
+            eq(quizHistoryTable.userId, userId as any)
+          )
+        );
+
+      if (!attempt) {
+        res.status(403).json({
+          status: 'fail',
+          message: 'Forbidden. You are not authorized to review questions for this attempt.',
+        });
+        return;
+      }
+
+      // If a specific courseId was targeted, verify it matches the attempt's course
+      if (courseId && courseId !== 'mixed' && attempt.courseId !== courseId) {
+        res.status(403).json({
+          status: 'fail',
+          message: 'Forbidden. Requested course does not match the completed attempt.',
+        });
+        return;
+      }
+
+      verifiedAttempt = attempt;
+    } catch (err: any) {
+      logger.error(`[QUIZ REVIEW AUTH ERROR]: ${err?.message || err}`);
+      res.status(500).json({
+        status: 'fail',
+        message: 'Failed to verify attempt authorization.',
+      });
+      return;
+    }
+  }
+
+  const effectiveQuizType = normalizeQuizType(type) || (verifiedAttempt ? normalizeQuizType(verifiedAttempt.quizType) : undefined);
 
   let parsedQuestionIds: string[] | undefined = undefined;
   if (typeof questionIds === 'string' && questionIds.trim().length > 0) {
@@ -378,15 +444,17 @@ export const getReviewQuestionsHandler = async (
   }
 
   try {
+    const effectiveCourseId = (courseId && courseId !== 'mixed')
+      ? courseId
+      : (verifiedAttempt && verifiedAttempt.category !== 'MIXED' ? verifiedAttempt.courseId : courseId);
+
     logger.info(
-      `[QUIZ REVIEW] Fetching review questions for course: ${courseId || 'any'}, type: ${
-        quizType || 'all'
-      }`
+      `[QUIZ REVIEW] Authorized review questions fetch for course: ${effectiveCourseId || 'mixed'}, user: ${userId}, role: ${userRole || 'STUDENT'}`
     );
 
     const questions = await quizService.getReviewQuestions(
-      courseId as string,
-      quizType,
+      effectiveCourseId as string,
+      effectiveQuizType,
       parsedQuestionIds
     );
 

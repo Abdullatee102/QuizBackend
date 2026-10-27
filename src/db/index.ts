@@ -14,8 +14,10 @@ const databaseUrl = process.env.DATABASE_URL;
 export const pool = new Pool({
   connectionString: databaseUrl,
   max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 15000,
+  connectionTimeoutMillis: 30000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
   ...(isProduction || (databaseUrl && databaseUrl.includes('sslmode=require'))
     ? { ssl: { rejectUnauthorized: false } }
     : {}),

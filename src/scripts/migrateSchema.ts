@@ -167,6 +167,26 @@ async function runMigration() {
     `);
     console.log('[MIGRATION] query performance indexes verified');
 
+    // 12. Ensure otps table exists
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS otps (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        identifier text NOT NULL,
+        otp_hash text NOT NULL,
+        purpose text NOT NULL DEFAULT 'verification',
+        expires_at timestamp NOT NULL,
+        attempts integer NOT NULL DEFAULT 0,
+        max_attempts integer NOT NULL DEFAULT 5,
+        is_used boolean NOT NULL DEFAULT false,
+        created_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS otps_identifier_idx ON otps (identifier);
+      CREATE INDEX IF NOT EXISTS otps_purpose_idx ON otps (purpose);
+      CREATE INDEX IF NOT EXISTS otps_is_used_idx ON otps (is_used);
+      CREATE INDEX IF NOT EXISTS otps_expires_at_idx ON otps (expires_at);
+    `);
+    console.log('[MIGRATION] otps table and indexes verified');
+
     console.log('[MIGRATION] All database schema migrations successfully completed!');
   } catch (error) {
     console.error('[MIGRATION ERROR]', error);
