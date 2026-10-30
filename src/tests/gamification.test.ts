@@ -14,8 +14,8 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
   let course2Id: string;
   let question1Id: string;
   let question2Id: string;
-  let testFacultyId: number;
-  let testDeptId: number;
+  let testFacultyId: string;
+  let testDeptId: string;
 
   before(async () => {
     // 1. Fetch or create faculty & department
@@ -27,6 +27,7 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
         name: 'Faculty of Computing and Informatics',
         code: 'FCI',
       }).returning();
+      if (!newFac) throw new Error('Failed to create test faculty');
       testFacultyId = newFac.id;
     }
 
@@ -39,6 +40,7 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
         code: 'CSC',
         facultyId: testFacultyId,
       }).returning();
+      if (!newDept) throw new Error('Failed to create test department');
       testDeptId = newDept.id;
     }
 
@@ -48,8 +50,9 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
       title: 'Gamification Test Course 1',
       departmentId: testDeptId,
       level: 100,
-      semester: 1,
+      semester: 'harmattan',
     }).returning();
+    if (!c1) throw new Error('Failed to create test course 1');
     course1Id = c1.id;
 
     const [c2] = await db.insert(coursesTable).values({
@@ -57,8 +60,9 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
       title: 'Gamification Test Course 2',
       departmentId: testDeptId,
       level: 100,
-      semester: 1,
+      semester: 'harmattan',
     }).returning();
+    if (!c2) throw new Error('Failed to create test course 2');
     course2Id = c2.id;
 
     // 3. Create question for course 1 & 2
@@ -70,6 +74,7 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
       correctAnswer: '20',
       difficulty: 'easy',
     }).returning();
+    if (!q1) throw new Error('Failed to create test question 1');
     question1Id = q1.id;
 
     const [q2] = await db.insert(questionsTable).values({
@@ -80,6 +85,7 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
       correctAnswer: '100',
       difficulty: 'easy',
     }).returning();
+    if (!q2) throw new Error('Failed to create test question 2');
     question2Id = q2.id;
 
     // 4. Create main test user
@@ -95,6 +101,7 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
       departmentId: testDeptId,
       leaderboardPrivacy: 'USERNAME_ONLY',
     }).returning();
+    if (!u1) throw new Error('Failed to create test user 1');
     testUserId = u1.id;
 
     // 5. Create peer test user in same faculty/dept for scope testing
@@ -109,6 +116,7 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
       departmentId: testDeptId,
       leaderboardPrivacy: 'USERNAME_ONLY',
     }).returning();
+    if (!u2) throw new Error('Failed to create test user 2');
     testUser2Id = u2.id;
   });
 
@@ -379,6 +387,7 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
       status: 'ACTIVE',
       leaderboardPrivacy: 'USERNAME_ONLY',
     }).returning();
+    if (!noFacUser) throw new Error('Failed to create noFacUser');
 
     const noFacLeaders = await authService.getTopLeaderboard('24h', 10, 'faculty', noFacUser.id);
     assert.strictEqual(noFacLeaders.length, 0, 'User without faculty must receive empty faculty list');
@@ -400,7 +409,7 @@ describe('BB-04: Gamification, Leaderboard Integrity & Achievement Security', ()
         const b = leaders[i + 1];
 
         // Tier 1: Total XP
-        if (a.totalScore !== b.totalScore) {
+        if (a && b && a.totalScore !== b.totalScore) {
           assert.ok(a.totalScore >= b.totalScore, 'Ranked items must be ordered by totalScore DESC');
         }
       }
