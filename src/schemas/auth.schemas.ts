@@ -421,6 +421,10 @@ export const updateProfileSchema = z.object({
       ])
       .nullable()
       .optional(),
+
+    leaderboardPrivacy: z
+      .enum(['FULL_NAME', 'USERNAME_ONLY', 'ANONYMOUS', 'EXCLUDE'])
+      .optional(),
   }),
 });
 
@@ -451,5 +455,15 @@ export const unlockAchievementSchema = z.object({
     icon: z
       .string()
       .optional(),
+  }),
+});
+
+// =====================================================
+// LEADERBOARD PRIVACY
+// =====================================================
+
+export const updateLeaderboardPrivacySchema = z.object({
+  body: z.object({
+    privacy: z.enum(['FULL_NAME', 'USERNAME_ONLY', 'ANONYMOUS', 'EXCLUDE']),
   }),
 });

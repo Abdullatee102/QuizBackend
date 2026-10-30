@@ -187,6 +187,46 @@ async function runMigration() {
     `);
     console.log('[MIGRATION] otps table and indexes verified');
 
+    // 13. Ensure feedback table exists (BB-03)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS feedback (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        survey_version text NOT NULL DEFAULT '1.0',
+        overall_satisfaction integer NOT NULL,
+        usage_frequency text NOT NULL,
+        content_accuracy_rating integer NOT NULL,
+        fairness_rating integer NOT NULL,
+        technical_frictions jsonb NOT NULL DEFAULT '[]'::jsonb,
+        friction_details text,
+        feature_ratings jsonb NOT NULL DEFAULT '{}'::jsonb,
+        structured_answers jsonb NOT NULL,
+        suggestions text,
+        academic_context jsonb NOT NULL DEFAULT '{}'::jsonb,
+        client_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamp NOT NULL DEFAULT now(),
+        CONSTRAINT feedback_user_survey_unique UNIQUE (user_id, survey_version)
+      );
+      CREATE INDEX IF NOT EXISTS feedback_survey_version_idx ON feedback (survey_version);
+      CREATE INDEX IF NOT EXISTS feedback_created_at_idx ON feedback (created_at);
+      CREATE INDEX IF NOT EXISTS feedback_satisfaction_idx ON feedback (overall_satisfaction);
+      CREATE INDEX IF NOT EXISTS feedback_user_id_idx ON feedback (user_id);
+    `);
+    console.log('[MIGRATION] feedback table, unique constraint and indexes verified (BB-03)');
+
+    // 14. Ensure leaderboard_privacy and earned_xp exist with safe backfill (BB-04 Batch 1)
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS leaderboard_privacy text DEFAULT 'USERNAME_ONLY' NOT NULL;
+      UPDATE users SET leaderboard_privacy = 'USERNAME_ONLY' WHERE leaderboard_privacy IS NULL;
+      CREATE INDEX IF NOT EXISTS users_leaderboard_privacy_idx ON users (leaderboard_privacy);
+
+      ALTER TABLE quiz_history ADD COLUMN IF NOT EXISTS earned_xp integer DEFAULT 0 NOT NULL;
+      UPDATE quiz_history SET earned_xp = ROUND(score)::integer WHERE (earned_xp IS NULL OR earned_xp = 0) AND score > 0;
+      CREATE INDEX IF NOT EXISTS quiz_history_user_course_created_idx ON quiz_history (user_id, course_id, created_at);
+      CREATE INDEX IF NOT EXISTS quiz_history_created_at_earned_xp_idx ON quiz_history (created_at, earned_xp);
+    `);
+    console.log('[MIGRATION] leaderboard_privacy and earned_xp columns, indexes and backfills verified (BB-04)');
+
     console.log('[MIGRATION] All database schema migrations successfully completed!');
   } catch (error) {
     console.error('[MIGRATION ERROR]', error);

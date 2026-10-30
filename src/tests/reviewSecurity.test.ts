@@ -24,18 +24,6 @@ function createMockResponse() {
   return res as Response & { statusCode: number; body: any };
 }
 
-async function withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch (err: any) {
-      if (i === retries - 1) throw err;
-      await new Promise((r) => setTimeout(r, 600));
-    }
-  }
-  throw new Error('Retries exhausted');
-}
-
 describe('BB-02: Answer-Key Exposure Defense (getReviewQuestionsHandler)', () => {
   let studentAId: string;
   let studentBId: string;
@@ -45,62 +33,50 @@ describe('BB-02: Answer-Key Exposure Defense (getReviewQuestionsHandler)', () =>
 
   before(async () => {
     // Look up an existing active course or use first available course
-    const c = await withRetry(async () => {
-      const [res] = await db.select({ id: coursesTable.id }).from(coursesTable).limit(1);
-      return res;
-    });
+    const [c] = await db.select({ id: coursesTable.id }).from(coursesTable).limit(1);
     courseId = c?.id || '00000000-0000-0000-0000-000000000001';
 
     // Create student A
-    const studentA = await withRetry(async () => {
-      const [res] = await db
-        .insert(usersTable)
-        .values({
-          fullName: 'Student A Test',
-          username: `student_a_${Date.now()}`,
-          email: `student_a_${Date.now()}@lautech.edu.ng`,
-          password: 'hashed-password-test',
-          role: 'STUDENT',
-          status: 'ACTIVE',
-        })
-        .returning();
-      return res!;
-    });
+    const [studentA] = await db
+      .insert(usersTable)
+      .values({
+        fullName: 'Student A Test',
+        username: `student_a_${Date.now()}`,
+        email: `student_a_${Date.now()}@lautech.edu.ng`,
+        password: 'hashed-password-test',
+        role: 'STUDENT',
+        status: 'ACTIVE',
+      })
+      .returning();
     studentAId = studentA!.id;
 
     // Create student B
-    const studentB = await withRetry(async () => {
-      const [res] = await db
-        .insert(usersTable)
-        .values({
-          fullName: 'Student B Test',
-          username: `student_b_${Date.now()}`,
-          email: `student_b_${Date.now()}@lautech.edu.ng`,
-          password: 'hashed-password-test',
-          role: 'STUDENT',
-          status: 'ACTIVE',
-        })
-        .returning();
-      return res!;
-    });
+    const [studentB] = await db
+      .insert(usersTable)
+      .values({
+        fullName: 'Student B Test',
+        username: `student_b_${Date.now()}`,
+        email: `student_b_${Date.now()}@lautech.edu.ng`,
+        password: 'hashed-password-test',
+        role: 'STUDENT',
+        status: 'ACTIVE',
+      })
+      .returning();
     studentBId = studentB!.id;
 
     // Create completed quiz history for student A only
-    const history = await withRetry(async () => {
-      const [res] = await db
-        .insert(quizHistoryTable)
-        .values({
-          userId: studentAId as any,
-          courseId: courseId as any,
-          quizType: 'cbt',
-          category: 'CSC101',
-          score: 80,
-          correctAnswers: 8,
-          totalQuestions: 10,
-        })
-        .returning();
-      return res!;
-    });
+    const [history] = await db
+      .insert(quizHistoryTable)
+      .values({
+        userId: studentAId as any,
+        courseId: courseId as any,
+        quizType: 'cbt',
+        category: 'CSC101',
+        score: 80,
+        correctAnswers: 8,
+        totalQuestions: 10,
+      })
+      .returning();
     completedHistoryId = history!.id;
   });
 
@@ -201,3 +177,4 @@ describe('BB-02: Answer-Key Exposure Defense (getReviewQuestionsHandler)', () =>
     assert.ok(Array.isArray(res.body?.data));
   });
 });
+

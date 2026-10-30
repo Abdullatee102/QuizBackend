@@ -20,6 +20,7 @@ import {
   getAchievements,
   unlockAchievement,
   getRecommendedCourses,
+  updateLeaderboardPrivacy,
 } from '../controllers/auth.controller.js';
 
 import {
@@ -57,6 +58,7 @@ import {
   changePasswordSchema,
   unlockAchievementSchema,
   deleteAccountSchema,
+  updateLeaderboardPrivacySchema,
 } from '../schemas/auth.schemas.js';
 
 import type { Response } from 'express';
@@ -188,6 +190,13 @@ router.patch(
   protect,
   validate(updateProfileSchema),
   updateProfile
+);
+
+router.patch(
+  '/profile/leaderboard-privacy',
+  protect,
+  validate(updateLeaderboardPrivacySchema),
+  updateLeaderboardPrivacy
 );
 
 router.get(

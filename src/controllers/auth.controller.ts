@@ -1176,62 +1176,19 @@ export const unlockAchievement =
     req: AuthenticatedRequest,
     res: Response
   ): Promise<void> => {
-    const userId =
-      req.user?.id ||
-      req.user?.userId;
+    // BB-04 Security Enforcement:
+    // Client-side achievement unlocking is strictly forbidden to protect gamification integrity.
+    // Badges must be evaluated and awarded exclusively by the server upon quiz completion.
+    logger.warn(
+      `[SECURITY] Client attempted manual achievement unlock from user ID: ${req.user?.id || 'anonymous'}`
+    );
 
-    if (!userId) {
-      res.status(401).json({
-        status: 'fail',
-        message:
-          'Unauthorized',
-      });
-
-      return;
-    }
-
-    try {
-      const {
-        key,
-        title,
-        description,
-        icon,
-      } = req.body;
-
-      const unlocked =
-        await authService.unlockAchievement(
-          userId,
-          {
-            key,
-            title,
-            description,
-            icon,
-          }
-        );
-
-      logger.info(
-        `[UNLOCK ACHIEVEMENT] Achievement '${key}' unlocked for user ID: ${userId}`
-      );
-
-      res.status(200).json({
-        status: 'success',
-        message:
-          'Achievement unlocked successfully',
-        data: unlocked,
-      });
-    } catch (error: any) {
-      logger.error(
-        `[UNLOCK ACHIEVEMENT ERROR]: ${
-          error.message || error
-        }`
-      );
-
-      res.status(500).json({
-        status: 'fail',
-        message:
-          'Failed to unlock achievement',
-      });
-    }
+    res.status(403).json({
+      status: 'fail',
+      code: 'MANUAL_UNLOCK_DISABLED',
+      message:
+        'Manual achievement unlocking is disabled. Achievements are evaluated and awarded automatically by the server upon quiz completion.',
+    });
   };
 
 // =====================================================
@@ -1248,19 +1205,34 @@ export const getLeaderboard =
         (req.query.range as string) ||
         '24h';
 
+      const scope =
+        (req.query.scope as string) ||
+        'global';
+
+      const limit =
+        parseInt(req.query.limit as string, 10) ||
+        20;
+
+      const userId =
+        req.user?.id ||
+        req.user?.userId;
+
       const leaders =
         await authService.getTopLeaderboard(
           range,
-          20
+          limit,
+          scope,
+          userId
         );
 
       logger.info(
-        `[LEADERBOARD] Fetched top performers successfully for range: ${range}`
+        `[LEADERBOARD] Fetched top performers successfully for range: ${range}, scope: ${scope}`
       );
 
       res.status(200).json({
         status: 'success',
         data: leaders,
+        standing: (leaders as any).userStanding || null,
       });
     } catch (error) {
       logger.error(
@@ -1271,6 +1243,58 @@ export const getLeaderboard =
         status: 'fail',
         message:
           'Failed to fetch leaderboard',
+      });
+    }
+  };
+
+// =====================================================
+// LEADERBOARD PRIVACY
+// =====================================================
+
+export const updateLeaderboardPrivacy =
+  async (
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> => {
+    const userId =
+      req.user?.id ||
+      req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Unauthorized',
+      });
+      return;
+    }
+
+    try {
+      const { privacy } = req.body;
+
+      const result =
+        await authService.updateLeaderboardPrivacy(
+          userId,
+          privacy
+        );
+
+      logger.info(
+        `[LEADERBOARD PRIVACY] User ${userId} updated preference to ${privacy}`
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Leaderboard privacy preference updated successfully',
+        data: result,
+      });
+    } catch (error: any) {
+      logger.error(
+        `[LEADERBOARD PRIVACY ERROR]: ${error.message || error}`
+      );
+
+      res.status(400).json({
+        status: 'fail',
+        message:
+          error.message || 'Failed to update leaderboard privacy',
       });
     }
   };

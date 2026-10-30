@@ -16,6 +16,7 @@ import messageRoutes from './routes/message.routes.js';
 import supportRoutes from './routes/support.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import adminRoutes from './routes/admin/index.js';
+import feedbackRoutes from './routes/feedback.routes.js';
 import { socketService } from './socket/index.js';
 
 // =====================================================
@@ -89,6 +90,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/feedback', feedbackRoutes);
 app.use('/api/admin', adminRoutes);
 
 // =====================================================

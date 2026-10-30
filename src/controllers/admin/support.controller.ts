@@ -298,12 +298,6 @@ export const replyToSupportRequest = async (
 
     // Send push notification & in-app notification to the ticket creator
     try {
-      await notificationService.sendToUser(
-        String(request.userId),
-        'Support Ticket Update',
-        `A support agent replied to your ticket: "${request.subject}"`,
-        { ticketId: requestId, requestId }
-      );
       await notificationService.createNotification({
         userId: String(request.userId),
         type: 'support_update',

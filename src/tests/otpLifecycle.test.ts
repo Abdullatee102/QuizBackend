@@ -82,8 +82,8 @@ describe('BB-02: OTP PostgreSQL Lifecycle & Security', () => {
       .from(otpsTable)
       .where(eq(otpsTable.identifier, attemptEmail));
 
-    assert.ok(record, 'Record should exist');
-    assert.strictEqual(record?.attempts, 1, 'Attempt counter must be incremented to 1');
+    assert.ok(record, 'Record must exist');
+    assert.strictEqual(record.attempts, 1, 'Attempt counter must be incremented to 1');
 
     // Clean up
     await db.delete(otpsTable).where(eq(otpsTable.identifier, attemptEmail));
@@ -107,3 +107,4 @@ describe('BB-02: OTP PostgreSQL Lifecycle & Security', () => {
     await db.delete(otpsTable).where(eq(otpsTable.identifier, lockoutEmail));
   });
 });
+

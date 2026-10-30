@@ -9,6 +9,9 @@ before(async () => {
 import './leaderboardPrivacy.test.js';
 import './otpLifecycle.test.js';
 import './reviewSecurity.test.js';
+import './notificationPush.test.js';
+import './feedback.test.js';
+import './gamification.test.js';
 
 after(async () => {
   try {
@@ -17,3 +20,4 @@ after(async () => {
     // Ignore pool teardown errors
   }
 });
+

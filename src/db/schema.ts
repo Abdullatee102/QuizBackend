@@ -46,6 +46,15 @@ export const SUPPORT_STATUS = {
 
 export type SupportStatus = (typeof SUPPORT_STATUS)[keyof typeof SUPPORT_STATUS];
 
+export const LEADERBOARD_PRIVACY = {
+  FULL_NAME: 'FULL_NAME',
+  USERNAME_ONLY: 'USERNAME_ONLY',
+  ANONYMOUS: 'ANONYMOUS',
+  EXCLUDE: 'EXCLUDE',
+} as const;
+
+export type LeaderboardPrivacy = (typeof LEADERBOARD_PRIVACY)[keyof typeof LEADERBOARD_PRIVACY];
+
 // =====================================================
 // GRADING POINT TYPE
 // =====================================================
@@ -106,6 +115,10 @@ export const usersTable = pgTable(
       .default('ACTIVE')
       .notNull(),
 
+    leaderboardPrivacy: text('leaderboard_privacy')
+      .default('USERNAME_ONLY')
+      .notNull(),
+
     createdAt: timestamp('created_at')
       .defaultNow()
       .notNull(),
@@ -113,6 +126,7 @@ export const usersTable = pgTable(
   (table) => ({
     roleIdx: index('users_role_idx').on(table.role),
     statusIdx: index('users_status_idx').on(table.status),
+    leaderboardPrivacyIdx: index('users_leaderboard_privacy_idx').on(table.leaderboardPrivacy),
     facultyIdIdx: index('users_faculty_id_idx').on(table.facultyId),
     departmentIdIdx: index('users_department_id_idx').on(table.departmentId),
     levelIdx: index('users_level_idx').on(table.level),
@@ -421,10 +435,25 @@ export const quizHistoryTable = pgTable(
     totalQuestions: integer('total_questions')
       .notNull(),
 
+    earnedXp: integer('earned_xp')
+      .default(0)
+      .notNull(),
+
     createdAt: timestamp('created_at')
       .defaultNow()
       .notNull(),
-  }
+  },
+  (table) => ({
+    userCourseCreatedIdx: index('quiz_history_user_course_created_idx').on(
+      table.userId,
+      table.courseId,
+      table.createdAt
+    ),
+    createdAtEarnedXpIdx: index('quiz_history_created_at_earned_xp_idx').on(
+      table.createdAt,
+      table.earnedXp
+    ),
+  })
 );
 
 // =====================================================
@@ -875,5 +904,110 @@ export const otpsTable = pgTable(
     purposeIdx: index('otps_purpose_idx').on(table.purpose),
     isUsedIdx: index('otps_is_used_idx').on(table.isUsed),
     expiresAtIdx: index('otps_expires_at_idx').on(table.expiresAt),
+  })
+);
+
+// =====================================================
+// USER FEEDBACK & RESEARCH (BB-03)
+// =====================================================
+
+export const feedbackTable = pgTable(
+  'feedback',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    surveyVersion: text('survey_version')
+      .default('1.0')
+      .notNull(),
+
+    overallSatisfaction: integer('overall_satisfaction')
+      .notNull(),
+
+    usageFrequency: text('usage_frequency')
+      .notNull(),
+
+    contentAccuracyRating: integer('content_accuracy_rating')
+      .notNull(),
+
+    fairnessRating: integer('fairness_rating')
+      .notNull(),
+
+    technicalFrictions: jsonb('technical_frictions')
+      .$type<string[]>()
+      .default([])
+      .notNull(),
+
+    frictionDetails: text('friction_details'),
+
+    featureRatings: jsonb('feature_ratings')
+      .$type<Record<string, number>>()
+      .default({})
+      .notNull(),
+
+    structuredAnswers: jsonb('structured_answers')
+      .$type<{
+        usageFrequency: string;
+        featuresEvaluated: string[];
+        courseDiscoveryScore: number;
+        cbtSessionExperience: string;
+        answerReviewScore: number;
+        progressTrackingScore: number;
+        technicalFrictions: string[];
+        frictionDetails?: string | null;
+        contentAccuracyScore: number;
+        competitionFairnessScore: number;
+        overallSatisfaction: number;
+        featuresNotUsed: string[];
+      }>()
+      .notNull(),
+
+    suggestions: text('suggestions'),
+
+    academicContext: jsonb('academic_context')
+      .$type<{
+        facultyId: string | null;
+        departmentId: string | null;
+        level: number | null;
+      }>()
+      .default({
+        facultyId: null,
+        departmentId: null,
+        level: null,
+      })
+      .notNull(),
+
+    clientMetadata: jsonb('client_metadata')
+      .$type<{
+        appVersion: string;
+        platform: 'android' | 'ios' | 'other';
+        deviceModel?: string;
+      }>()
+      .default({
+        appVersion: '1.0.0',
+        platform: 'android',
+      })
+      .notNull(),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userSurveyVersionUnique: unique('feedback_user_survey_unique').on(
+      table.userId,
+      table.surveyVersion
+    ),
+    surveyVersionIdx: index('feedback_survey_version_idx').on(table.surveyVersion),
+    createdAtIdx: index('feedback_created_at_idx').on(table.createdAt),
+    satisfactionIdx: index('feedback_satisfaction_idx').on(table.overallSatisfaction),
+    userIdIdx: index('feedback_user_id_idx').on(table.userId),
   })
 );

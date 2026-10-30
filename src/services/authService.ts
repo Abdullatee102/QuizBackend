@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 
-import { db } from '../db/index.js';
+import { db, pool } from '../db/index.js';
 
 import {
   usersTable,
@@ -20,10 +20,13 @@ import {
   or,
   sql,
   desc,
+  asc,
   and,
   gte,
   gt,
   lt,
+  ne,
+  isNull,
 } from 'drizzle-orm';
 
 import { quizService } from './quizService.js';
@@ -804,6 +807,14 @@ export const authService = {
       dataToUpdate.phoneNumber = cleanPhone;
     }
 
+    if (updateData.leaderboardPrivacy !== undefined) {
+      const allowed = ['FULL_NAME', 'USERNAME_ONLY', 'ANONYMOUS', 'EXCLUDE'];
+      if (!allowed.includes(updateData.leaderboardPrivacy)) {
+        throw new Error('Invalid leaderboard privacy setting. Must be FULL_NAME, USERNAME_ONLY, ANONYMOUS, or EXCLUDE.');
+      }
+      dataToUpdate.leaderboardPrivacy = updateData.leaderboardPrivacy;
+    }
+
     // ===================================================
     // ACADEMIC VALIDATION & UPDATE
     // ===================================================
@@ -1200,6 +1211,43 @@ export const authService = {
       )
     );
 
+    // ---------------------------------------------------
+    // BB-04 ANTI-GRIND MASTERY XP CALCULATION (ROLLING 24H DECAY)
+    // Same-course attempt decay:
+    // Attempt 1: 100% XP (1.0)
+    // Attempt 2: 50% XP (0.5)
+    // Attempt 3+: 25% XP (0.25)
+    // Empty / 0-question attempts: 0 XP
+    // Historical academic score is preserved intact.
+    // ---------------------------------------------------
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const [priorAttemptsResult] = await db
+      .select({
+        count: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(quizHistoryTable)
+      .where(
+        and(
+          eq(quizHistoryTable.userId, userId as any),
+          eq(quizHistoryTable.courseId, course.id),
+          gte(quizHistoryTable.createdAt, twentyFourHoursAgo)
+        )
+      );
+
+    const priorAttempts = priorAttemptsResult?.count ?? 0;
+    let attemptMultiplier = 1.0;
+    if (priorAttempts === 1) {
+      attemptMultiplier = 0.5;
+    } else if (priorAttempts >= 2) {
+      attemptMultiplier = 0.25;
+    }
+
+    let earnedXp = 0;
+    if (gradingResult.totalQuestions > 0 && gradingResult.score > 0) {
+      earnedXp = Math.round(gradingResult.score * attemptMultiplier);
+    }
+
     const [result] =
       await db
         .insert(
@@ -1216,6 +1264,8 @@ export const authService = {
 
           score:
             gradingResult.score,
+
+          earnedXp,
 
           totalQuestions:
             gradingResult.totalQuestions,
@@ -1258,6 +1308,10 @@ export const authService = {
 
         score:
           gradingResult.score,
+
+        earnedXp,
+
+        attemptMultiplier,
 
         percentage:
           gradingResult.percentage,
@@ -1781,13 +1835,36 @@ export const authService = {
     },
 
   // ===================================================
+  // LEADERBOARD PRIVACY PREFERENCE
+  // ===================================================
+
+  updateLeaderboardPrivacy: async (
+    userId: string | number,
+    privacy: 'FULL_NAME' | 'USERNAME_ONLY' | 'ANONYMOUS' | 'EXCLUDE'
+  ): Promise<{ success: boolean; privacy: string }> => {
+    const allowed = ['FULL_NAME', 'USERNAME_ONLY', 'ANONYMOUS', 'EXCLUDE'];
+    if (!allowed.includes(privacy)) {
+      throw new Error('Invalid leaderboard privacy setting. Must be FULL_NAME, USERNAME_ONLY, ANONYMOUS, or EXCLUDE.');
+    }
+
+    await db
+      .update(usersTable)
+      .set({ leaderboardPrivacy: privacy })
+      .where(eq(usersTable.id, userId as any));
+
+    return { success: true, privacy };
+  },
+
+  // ===================================================
   // LEADERBOARD
   // ===================================================
 
   getTopLeaderboard:
     async (
       range: string = '24h',
-      limit: number = 20
+      limit: number = 20,
+      scope: string = 'global',
+      requestingUserId?: string | number
     ): Promise<any[]> => {
 
       let dateFilter:
@@ -1829,13 +1906,62 @@ export const authService = {
           );
       }
 
-      const results =
+      // Resolve requesting user if ID is supplied
+      let requestingUser: any = null;
+      if (requestingUserId) {
+        const [u] = await db
+          .select({
+            id: usersTable.id,
+            facultyId: usersTable.facultyId,
+            departmentId: usersTable.departmentId,
+            leaderboardPrivacy: usersTable.leaderboardPrivacy,
+            username: usersTable.username,
+            fullName: usersTable.fullName,
+          })
+          .from(usersTable)
+          .where(eq(usersTable.id, requestingUserId as any));
+        requestingUser = u || null;
+      }
+
+      // Public list conditions:
+      // 1. Exclude students who set privacy to 'EXCLUDE'
+      const conditions: any[] = [
+        or(
+          isNull(usersTable.leaderboardPrivacy),
+          ne(usersTable.leaderboardPrivacy, 'EXCLUDE')
+        ),
+      ];
+
+      // 2. Filter by scope
+      if (scope === 'faculty') {
+        if (requestingUser?.facultyId) {
+          conditions.push(eq(usersTable.facultyId, requestingUser.facultyId));
+        } else {
+          // Missing faculty affiliation - return empty public ranking for faculty scope
+          conditions.push(sql`1=0`);
+        }
+      } else if (scope === 'department') {
+        if (requestingUser?.departmentId) {
+          conditions.push(eq(usersTable.departmentId, requestingUser.departmentId));
+        } else {
+          // Missing department affiliation - return empty public ranking for department scope
+          conditions.push(sql`1=0`);
+        }
+      }
+
+      // 4-tier deterministic tie-breakers:
+      // Tier 1: Total Mastery XP (earned_xp) DESC
+      // Tier 2: Overall Accuracy % DESC
+      // Tier 3: Total Questions Attempted DESC
+      // Tier 4: Earliest Completion Timestamp ASC (fallback: user ID ASC)
+      const rawLeaders =
         await db
           .select({
             id: usersTable.id,
             fullName: usersTable.fullName,
             username: usersTable.username,
             photoURL: usersTable.photoURL,
+            leaderboardPrivacy: usersTable.leaderboardPrivacy,
             facultyId: usersTable.facultyId,
             departmentId: usersTable.departmentId,
             facultyCode: facultiesTable.code,
@@ -1845,10 +1971,26 @@ export const authService = {
             totalScore:
               sql<number>`
                 coalesce(
-                  sum(${quizHistoryTable.score}),
+                  sum(${quizHistoryTable.earnedXp}),
                   0
                 )
               `.mapWith(Number),
+            accuracy:
+              sql<number>`
+                coalesce(
+                  round((sum(${quizHistoryTable.correctAnswers})::numeric / nullif(sum(${quizHistoryTable.totalQuestions}), 0)::numeric) * 100, 2),
+                  0
+                )
+              `.mapWith(Number),
+            totalQuestions:
+              sql<number>`
+                coalesce(
+                  sum(${quizHistoryTable.totalQuestions}),
+                  0
+                )
+              `.mapWith(Number),
+            earliestAt:
+              sql<string | null>`min(${quizHistoryTable.createdAt})`,
           })
           .from(usersTable)
           .leftJoin(
@@ -1861,19 +2003,26 @@ export const authService = {
           )
           .leftJoin(
             quizHistoryTable,
-            and(
-              eq(
-                usersTable.id,
-                quizHistoryTable.userId
-              ),
-              dateFilter
-            )
+            dateFilter
+              ? and(
+                  eq(
+                    usersTable.id,
+                    quizHistoryTable.userId
+                  ),
+                  dateFilter
+                )
+              : eq(
+                  usersTable.id,
+                  quizHistoryTable.userId
+                )
           )
+          .where(and(...conditions))
           .groupBy(
             usersTable.id,
             usersTable.fullName,
             usersTable.username,
             usersTable.photoURL,
+            usersTable.leaderboardPrivacy,
             usersTable.facultyId,
             usersTable.departmentId,
             facultiesTable.code,
@@ -1885,15 +2034,163 @@ export const authService = {
             desc(
               sql`
                 coalesce(
-                  sum(${quizHistoryTable.score}),
+                  sum(${quizHistoryTable.earnedXp}),
                   0
                 )
               `
-            )
+            ),
+            desc(
+              sql`
+                coalesce(
+                  round((sum(${quizHistoryTable.correctAnswers})::numeric / nullif(sum(${quizHistoryTable.totalQuestions}), 0)::numeric) * 100, 2),
+                  0
+                )
+              `
+            ),
+            desc(
+              sql`
+                coalesce(
+                  sum(${quizHistoryTable.totalQuestions}),
+                  0
+                )
+              `
+            ),
+            sql`min(${quizHistoryTable.createdAt}) ASC NULLS LAST`,
+            asc(usersTable.id)
           )
           .limit(limit);
 
-      return results;
+      // Apply Privacy Masking
+      // Note: NEVER expose student emails, matriculation numbers, phone numbers, or auth tokens.
+      const maskedLeaders: any[] = rawLeaders.map((row) => {
+        let displayName = row.fullName || '';
+        let displayUsername = row.username || '';
+        let displayPhoto = row.photoURL;
+
+        const privacy = row.leaderboardPrivacy || 'USERNAME_ONLY';
+
+        if (privacy === 'ANONYMOUS') {
+          const shortId = String(row.id).slice(-4).padStart(4, '0');
+          displayName = `Scholar #${shortId}`;
+          displayUsername = `scholar_${shortId}`;
+          displayPhoto = null;
+        } else if (privacy === 'USERNAME_ONLY') {
+          displayName = row.username ? `@${row.username}` : 'Scholar';
+          displayUsername = row.username || '';
+        } else if (privacy === 'FULL_NAME') {
+          displayName = row.fullName || (row.username ? `@${row.username}` : 'Scholar');
+          displayUsername = row.username || '';
+        }
+
+        return {
+          id: row.id,
+          fullName: displayName,
+          username: displayUsername,
+          photoURL: displayPhoto,
+          facultyId: row.facultyId,
+          departmentId: row.departmentId,
+          facultyCode: row.facultyCode,
+          facultyName: row.facultyName,
+          departmentCode: row.departmentCode,
+          departmentName: row.departmentName,
+          totalScore: row.totalScore,
+        };
+      });
+
+      // Compute Personal Standing for Requesting User (even if excluded from public view)
+      let userStanding: any = null;
+
+      if (requestingUser) {
+        const facultyMissing = scope === 'faculty' && !requestingUser.facultyId;
+        const departmentMissing = scope === 'department' && !requestingUser.departmentId;
+
+        if (facultyMissing || departmentMissing) {
+          userStanding = {
+            rank: null,
+            percentile: null,
+            totalScore: 0,
+            accuracy: 0,
+            totalQuestions: 0,
+            isExcluded: requestingUser.leaderboardPrivacy === 'EXCLUDE',
+            privacy: requestingUser.leaderboardPrivacy,
+            scope,
+            scopeNotice: facultyMissing
+              ? 'Set your faculty in profile settings to participate in faculty rankings.'
+              : 'Set your department in profile settings to participate in department rankings.',
+          };
+        } else {
+          let dateJoinSql = '';
+          if (range === '24h') {
+            dateJoinSql = "AND q.created_at >= NOW() - INTERVAL '24 HOURS'";
+          } else if (range === '30d') {
+            dateJoinSql = "AND q.created_at >= NOW() - INTERVAL '30 DAYS'";
+          }
+
+          let scopeWhereSql = '1=1';
+          const queryParams: any[] = [requestingUserId];
+
+          if (scope === 'faculty') {
+            queryParams.push(requestingUser.facultyId);
+            scopeWhereSql = `u.faculty_id = $${queryParams.length}`;
+          } else if (scope === 'department') {
+            queryParams.push(requestingUser.departmentId);
+            scopeWhereSql = `u.department_id = $${queryParams.length}`;
+          }
+
+          try {
+            const { rows } = await pool.query(
+              `WITH ranked_users AS (
+                SELECT 
+                  u.id,
+                  u.leaderboard_privacy,
+                  COALESCE(SUM(q.earned_xp), 0)::integer AS total_score,
+                  COALESCE(ROUND((SUM(q.correct_answers)::numeric / NULLIF(SUM(q.total_questions), 0)::numeric) * 100, 2), 0)::float AS accuracy,
+                  COALESCE(SUM(q.total_questions), 0)::integer AS total_questions,
+                  MIN(q.created_at) AS earliest_at,
+                  RANK() OVER (
+                    ORDER BY 
+                      COALESCE(SUM(q.earned_xp), 0) DESC,
+                      COALESCE(ROUND((SUM(q.correct_answers)::numeric / NULLIF(SUM(q.total_questions), 0)::numeric) * 100, 2), 0) DESC,
+                      COALESCE(SUM(q.total_questions), 0) DESC,
+                      MIN(q.created_at) ASC NULLS LAST,
+                      u.id ASC
+                  ) AS rank,
+                  COUNT(*) OVER () AS total_participants
+                FROM users u
+                LEFT JOIN quiz_history q ON u.id = q.user_id ${dateJoinSql}
+                WHERE ${scopeWhereSql}
+                GROUP BY u.id, u.leaderboard_privacy
+              )
+              SELECT * FROM ranked_users WHERE id = $1`,
+              queryParams
+            );
+
+            const standingRow = rows[0];
+            if (standingRow) {
+              const rank = Number(standingRow.rank);
+              const total = Number(standingRow.total_participants);
+              const percentile = total > 1 ? Math.round(((total - rank) / (total - 1)) * 100) : 100;
+
+              userStanding = {
+                rank,
+                percentile,
+                totalScore: Number(standingRow.total_score),
+                accuracy: Number(standingRow.accuracy),
+                totalQuestions: Number(standingRow.total_questions),
+                isExcluded: requestingUser.leaderboardPrivacy === 'EXCLUDE',
+                privacy: requestingUser.leaderboardPrivacy,
+                totalParticipants: total,
+                scope,
+              };
+            }
+          } catch (err) {
+            console.error('[LEADERBOARD STANDING ERROR]:', err);
+          }
+        }
+      }
+
+      (maskedLeaders as any).userStanding = userStanding;
+      return maskedLeaders;
     },
 
   // ===================================================

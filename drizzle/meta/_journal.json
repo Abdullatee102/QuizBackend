@@ -15,6 +15,20 @@
       "when": 1790968742011,
       "tag": "0001_stiff_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793359750581,
+      "tag": "0002_outgoing_whiplash",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793361276393,
+      "tag": "0003_material_plazm",
+      "breakpoints": true
     }
   ]
 }
