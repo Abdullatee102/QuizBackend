@@ -33,6 +33,12 @@ import {
   getReviewQuestionsHandler,
 } from '../controllers/quiz.controller.js';
 
+import {
+  getStudentEnrollmentsHandler,
+  getStudentEligibleOfferingsHandler,
+  checkOfferingEligibilityHandler,
+} from '../controllers/student/enrollments.controller.js';
+
 
 import { validate } from '../middlewares/validate.middleware.js';
 import {
@@ -295,6 +301,14 @@ router.get(
   getReviewQuestionsHandler
 );
 
+
+// =====================================================
+// ACADEMIC ENROLMENTS & ELIGIBILITY (BB-07F.2)
+// =====================================================
+
+router.get('/enrollments', protect, getStudentEnrollmentsHandler);
+router.get('/offerings/eligible', protect, getStudentEligibleOfferingsHandler);
+router.get('/offerings/:offeringId/eligibility', protect, checkOfferingEligibilityHandler);
 
 // =====================================================
 // LEGACY BACKWARD COMPATIBILITY

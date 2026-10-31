@@ -227,6 +227,172 @@ async function runMigration() {
     `);
     console.log('[MIGRATION] leaderboard_privacy and earned_xp columns, indexes and backfills verified (BB-04)');
 
+    // 15. Ensure course_assignments table exists (BB-07B Lecturer Course Assignments)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS course_assignments (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        lecturer_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        course_id uuid NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        academic_session text NOT NULL,
+        semester text NOT NULL,
+        status text NOT NULL DEFAULT 'ACTIVE',
+        assigned_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now(),
+        CONSTRAINT course_assignments_lecturer_course_session_semester_unique UNIQUE (lecturer_id, course_id, academic_session, semester)
+      );
+      CREATE INDEX IF NOT EXISTS course_assignments_lecturer_course_session_semester_idx ON course_assignments (lecturer_id, course_id, academic_session, semester);
+      CREATE INDEX IF NOT EXISTS course_assignments_lecturer_id_idx ON course_assignments (lecturer_id);
+      CREATE INDEX IF NOT EXISTS course_assignments_course_id_idx ON course_assignments (course_id);
+      CREATE INDEX IF NOT EXISTS course_assignments_status_idx ON course_assignments (status);
+    `);
+    console.log('[MIGRATION] course_assignments table, unique constraint and indexes verified (BB-07B)');
+
+    // 16. Remediate course_assignments constraints and defaults (BB-07D)
+    // COURSE-02: Remove hardcoded default on academic_session
+    // COURSE-03: Update uniqueness rule to (lecturer_id, course_id, academic_session, semester)
+    await client.query(`
+      ALTER TABLE course_assignments ALTER COLUMN academic_session DROP DEFAULT;
+
+      ALTER TABLE course_assignments DROP CONSTRAINT IF EXISTS course_assignments_lecturer_course_session_unique;
+      DROP INDEX IF EXISTS course_assignments_lecturer_course_session_idx;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'course_assignments_lecturer_course_session_semester_unique'
+        ) THEN
+          ALTER TABLE course_assignments ADD CONSTRAINT course_assignments_lecturer_course_session_semester_unique UNIQUE (lecturer_id, course_id, academic_session, semester);
+        END IF;
+      END $$;
+
+      CREATE INDEX IF NOT EXISTS course_assignments_lecturer_course_session_semester_idx ON course_assignments (lecturer_id, course_id, academic_session, semester);
+    `);
+    console.log('[MIGRATION] course_assignments unique constraint and session defaults remediated (BB-07D)');
+
+    // 17. Course Offerings, Offering Lecturers, and Student Enrolments (BB-07F.2)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS course_offerings (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id uuid NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        academic_session text NOT NULL,
+        semester text NOT NULL,
+        level integer NOT NULL,
+        section text NOT NULL DEFAULT 'DEFAULT',
+        status text NOT NULL DEFAULT 'ACTIVE',
+        max_capacity integer,
+        created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now(),
+        CONSTRAINT course_offerings_course_session_semester_section_unique UNIQUE (course_id, academic_session, semester, section)
+      );
+      CREATE INDEX IF NOT EXISTS course_offerings_course_session_semester_idx ON course_offerings (course_id, academic_session, semester);
+      CREATE INDEX IF NOT EXISTS course_offerings_course_id_idx ON course_offerings (course_id);
+      CREATE INDEX IF NOT EXISTS course_offerings_status_idx ON course_offerings (status);
+      CREATE INDEX IF NOT EXISTS course_offerings_academic_session_idx ON course_offerings (academic_session);
+
+      CREATE TABLE IF NOT EXISTS offering_lecturers (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        offering_id uuid NOT NULL REFERENCES course_offerings(id) ON DELETE CASCADE,
+        lecturer_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role text NOT NULL DEFAULT 'PRIMARY',
+        status text NOT NULL DEFAULT 'ACTIVE',
+        assigned_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        assigned_at timestamp NOT NULL DEFAULT now(),
+        CONSTRAINT offering_lecturers_offering_lecturer_unique UNIQUE (offering_id, lecturer_id)
+      );
+      CREATE INDEX IF NOT EXISTS offering_lecturers_offering_id_idx ON offering_lecturers (offering_id);
+      CREATE INDEX IF NOT EXISTS offering_lecturers_lecturer_id_idx ON offering_lecturers (lecturer_id);
+      CREATE INDEX IF NOT EXISTS offering_lecturers_status_idx ON offering_lecturers (status);
+
+      CREATE TABLE IF NOT EXISTS student_enrollments (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        student_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        offering_id uuid NOT NULL REFERENCES course_offerings(id) ON DELETE CASCADE,
+        status text NOT NULL DEFAULT 'ENROLLED',
+        source text NOT NULL DEFAULT 'ADMIN_MANUAL',
+        enrolled_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        enrolled_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now(),
+        dropped_at timestamp,
+        CONSTRAINT student_enrollments_student_offering_unique UNIQUE (student_id, offering_id)
+      );
+      CREATE INDEX IF NOT EXISTS student_enrollments_student_id_idx ON student_enrollments (student_id);
+      CREATE INDEX IF NOT EXISTS student_enrollments_offering_id_idx ON student_enrollments (offering_id);
+      CREATE INDEX IF NOT EXISTS student_enrollments_status_idx ON student_enrollments (status);
+      CREATE INDEX IF NOT EXISTS student_enrollments_student_offering_status_idx ON student_enrollments (student_id, offering_id, status);
+    `);
+    console.log('[MIGRATION] course_offerings, offering_lecturers, and student_enrollments tables and indexes verified (BB-07F.2)');
+
+    // 18. Question-Bank Authoring & Approval Workflow (BB-07F.3)
+    await client.query(`
+      ALTER TABLE questions
+        ADD COLUMN IF NOT EXISTS status text DEFAULT 'PUBLISHED' NOT NULL,
+        ADD COLUMN IF NOT EXISTS origin_offering_id uuid REFERENCES course_offerings(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS author_lecturer_id uuid REFERENCES users(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS explanation text,
+        ADD COLUMN IF NOT EXISTS points integer DEFAULT 1 NOT NULL,
+        ADD COLUMN IF NOT EXISTS image_url text,
+        ADD COLUMN IF NOT EXISTS is_practice_eligible boolean DEFAULT true NOT NULL,
+        ADD COLUMN IF NOT EXISTS current_version integer DEFAULT 1 NOT NULL,
+        ADD COLUMN IF NOT EXISTS reviewed_by_admin_id uuid REFERENCES users(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS reviewed_at timestamp,
+        ADD COLUMN IF NOT EXISTS review_feedback text,
+        ADD COLUMN IF NOT EXISTS rejection_reason text,
+        ADD COLUMN IF NOT EXISTS published_by_admin_id uuid REFERENCES users(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS published_at timestamp,
+        ADD COLUMN IF NOT EXISTS created_at timestamp DEFAULT now() NOT NULL,
+        ADD COLUMN IF NOT EXISTS updated_at timestamp DEFAULT now() NOT NULL;
+
+      ALTER TABLE questions ALTER COLUMN status SET DEFAULT 'PUBLISHED';
+      ALTER TABLE questions ALTER COLUMN is_practice_eligible SET DEFAULT true;
+
+      -- Backfill legacy questions: all existing questions with no author are designated PUBLISHED and practice-eligible
+      UPDATE questions
+      SET status = 'PUBLISHED', is_practice_eligible = true, published_at = COALESCE(published_at, now())
+      WHERE author_lecturer_id IS NULL AND (status IS NULL OR status = 'DRAFT');
+
+      CREATE INDEX IF NOT EXISTS questions_origin_offering_id_idx ON questions (origin_offering_id);
+      CREATE INDEX IF NOT EXISTS questions_author_lecturer_id_idx ON questions (author_lecturer_id);
+      CREATE INDEX IF NOT EXISTS questions_status_idx ON questions (status);
+      CREATE INDEX IF NOT EXISTS questions_is_practice_eligible_idx ON questions (is_practice_eligible);
+
+      CREATE TABLE IF NOT EXISTS question_versions (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        question_id uuid NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        version_number integer NOT NULL,
+        type text NOT NULL,
+        question text NOT NULL,
+        options text[],
+        correct_answer text NOT NULL,
+        grading_points jsonb DEFAULT '[]'::jsonb NOT NULL,
+        explanation text,
+        points integer DEFAULT 1 NOT NULL,
+        image_url text,
+        difficulty text DEFAULT 'medium' NOT NULL,
+        submitted_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+        created_at timestamp DEFAULT now() NOT NULL,
+        CONSTRAINT question_versions_question_version_unique UNIQUE (question_id, version_number)
+      );
+      CREATE INDEX IF NOT EXISTS question_versions_question_id_idx ON question_versions (question_id);
+
+      CREATE TABLE IF NOT EXISTS question_reviews (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        question_id uuid NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        version_number integer NOT NULL,
+        action text NOT NULL,
+        from_status text NOT NULL,
+        to_status text NOT NULL,
+        performed_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+        feedback text,
+        reason text,
+        created_at timestamp DEFAULT now() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS question_reviews_question_id_idx ON question_reviews (question_id);
+      CREATE INDEX IF NOT EXISTS question_reviews_created_at_idx ON question_reviews (created_at);
+    `);
+    console.log('[MIGRATION] Question-Bank Authoring & Approval tables, versions, reviews, and legacy backfill verified (BB-07F.3)');
+
     console.log('[MIGRATION] All database schema migrations successfully completed!');
   } catch (error) {
     console.error('[MIGRATION ERROR]', error);

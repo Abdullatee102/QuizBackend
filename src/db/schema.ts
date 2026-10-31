@@ -22,6 +22,7 @@ export const USER_ROLES = {
   NOTIFICATION_ADMIN: 'NOTIFICATION_ADMIN',
   MODERATOR: 'MODERATOR',
   STUDENT: 'STUDENT',
+  LECTURER: 'LECTURER',
 } as const;
 
 export type UserRole = (typeof USER_ROLES)[keyof typeof USER_ROLES];
@@ -345,8 +346,21 @@ export const coursesTable = pgTable(
 );
 
 // =====================================================
-// QUESTIONS
+// QUESTIONS & WORKFLOW (BB-07F.3)
 // =====================================================
+
+export const QUESTION_STATUS = {
+  DRAFT: 'DRAFT',
+  SUBMITTED: 'SUBMITTED',
+  UNDER_REVIEW: 'UNDER_REVIEW',
+  REVISION_REQUIRED: 'REVISION_REQUIRED',
+  REJECTED: 'REJECTED',
+  APPROVED: 'APPROVED',
+  PUBLISHED: 'PUBLISHED',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+
+export type QuestionStatus = (typeof QUESTION_STATUS)[keyof typeof QUESTION_STATUS];
 
 export const questionsTable = pgTable(
   'questions',
@@ -359,6 +373,20 @@ export const questionsTable = pgTable(
       .references(() => coursesTable.id, {
         onDelete: 'cascade',
       })
+      .notNull(),
+
+    originOfferingId: uuid('origin_offering_id')
+      .references(() => courseOfferingsTable.id, {
+        onDelete: 'set null',
+      }),
+
+    authorLecturerId: uuid('author_lecturer_id')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    status: text('status')
+      .default('PUBLISHED')
       .notNull(),
 
     type: text('type')
@@ -381,18 +409,171 @@ export const questionsTable = pgTable(
       .default([])
       .notNull(),
 
+    explanation: text('explanation'),
+
+    points: integer('points')
+      .default(1)
+      .notNull(),
+
+    imageUrl: text('image_url'),
+
     difficulty: text('difficulty')
       .default('medium')
+      .notNull(),
+
+    isPracticeEligible: boolean('is_practice_eligible')
+      .default(true)
       .notNull(),
 
     isActive: boolean('is_active')
       .default(true)
       .notNull(),
+
+    currentVersion: integer('current_version')
+      .default(1)
+      .notNull(),
+
+    reviewedByAdminId: uuid('reviewed_by_admin_id')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    reviewedAt: timestamp('reviewed_at'),
+
+    reviewFeedback: text('review_feedback'),
+
+    rejectionReason: text('rejection_reason'),
+
+    publishedByAdminId: uuid('published_by_admin_id')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    publishedAt: timestamp('published_at'),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull(),
   },
   (table) => ({
     courseIdIdx: index('questions_course_id_idx').on(table.courseId),
+    originOfferingIdIdx: index('questions_origin_offering_id_idx').on(table.originOfferingId),
+    authorLecturerIdIdx: index('questions_author_lecturer_id_idx').on(table.authorLecturerId),
+    statusIdx: index('questions_status_idx').on(table.status),
     typeIdx: index('questions_type_idx').on(table.type),
+    isPracticeEligibleIdx: index('questions_is_practice_eligible_idx').on(table.isPracticeEligible),
     isActiveIdx: index('questions_is_active_idx').on(table.isActive),
+  })
+);
+
+export const questionVersionsTable = pgTable(
+  'question_versions',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    questionId: uuid('question_id')
+      .references(() => questionsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    versionNumber: integer('version_number')
+      .notNull(),
+
+    type: text('type')
+      .notNull(),
+
+    question: text('question')
+      .notNull(),
+
+    options: text('options')
+      .array(),
+
+    correctAnswer: text('correct_answer')
+      .notNull(),
+
+    gradingPoints: jsonb('grading_points')
+      .$type<GradingPoint[]>()
+      .default([])
+      .notNull(),
+
+    explanation: text('explanation'),
+
+    points: integer('points')
+      .default(1)
+      .notNull(),
+
+    imageUrl: text('image_url'),
+
+    difficulty: text('difficulty')
+      .default('medium')
+      .notNull(),
+
+    submittedByUserId: uuid('submitted_by_user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    questionIdIdx: index('question_versions_question_id_idx').on(table.questionId),
+    questionVersionUnique: unique('question_versions_question_version_unique').on(
+      table.questionId,
+      table.versionNumber
+    ),
+  })
+);
+
+export const questionReviewsTable = pgTable(
+  'question_reviews',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    questionId: uuid('question_id')
+      .references(() => questionsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    versionNumber: integer('version_number')
+      .notNull(),
+
+    action: text('action')
+      .notNull(), // 'SUBMIT', 'WITHDRAW', 'BEGIN_REVIEW', 'REQUEST_REVISION', 'REJECT', 'APPROVE', 'PUBLISH', 'ARCHIVE', 'RESTORE'
+
+    fromStatus: text('from_status')
+      .notNull(),
+
+    toStatus: text('to_status')
+      .notNull(),
+
+    performedByUserId: uuid('performed_by_user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    feedback: text('feedback'),
+
+    reason: text('reason'),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    questionIdIdx: index('question_reviews_question_id_idx').on(table.questionId),
+    createdAtIdx: index('question_reviews_created_at_idx').on(table.createdAt),
   })
 );
 
@@ -1011,3 +1192,285 @@ export const feedbackTable = pgTable(
     userIdIdx: index('feedback_user_id_idx').on(table.userId),
   })
 );
+
+// =====================================================
+// LECTURER COURSE ASSIGNMENTS (BB-07B)
+// =====================================================
+
+export const ASSIGNMENT_STATUS = {
+  ACTIVE: 'ACTIVE',
+  REVOKED: 'REVOKED',
+  INACTIVE: 'INACTIVE',
+} as const;
+
+export type AssignmentStatus = (typeof ASSIGNMENT_STATUS)[keyof typeof ASSIGNMENT_STATUS];
+
+export const courseAssignmentsTable = pgTable(
+  'course_assignments',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    lecturerId: uuid('lecturer_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    courseId: uuid('course_id')
+      .references(() => coursesTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    academicSession: text('academic_session')
+      .notNull(),
+
+    semester: text('semester')
+      .notNull(),
+
+    status: text('status')
+      .default('ACTIVE')
+      .notNull(),
+
+    assignedBy: uuid('assigned_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    lecturerCourseSessionSemesterIdx: index('course_assignments_lecturer_course_session_semester_idx').on(
+      table.lecturerId,
+      table.courseId,
+      table.academicSession,
+      table.semester
+    ),
+    lecturerIdIdx: index('course_assignments_lecturer_id_idx').on(table.lecturerId),
+    courseIdIdx: index('course_assignments_course_id_idx').on(table.courseId),
+    statusIdx: index('course_assignments_status_idx').on(table.status),
+    uniqueActiveAssignment: unique('course_assignments_lecturer_course_session_semester_unique').on(
+      table.lecturerId,
+      table.courseId,
+      table.academicSession,
+      table.semester
+    ),
+  })
+);
+
+// =====================================================
+// ACADEMIC COURSE OFFERINGS & ENROLMENTS (BB-07F.2)
+// =====================================================
+
+export const OFFERING_STATUS = {
+  DRAFT: 'DRAFT',
+  ACTIVE: 'ACTIVE',
+  COMPLETED: 'COMPLETED',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+
+export type OfferingStatus = (typeof OFFERING_STATUS)[keyof typeof OFFERING_STATUS];
+
+export const ENROLLMENT_STATUS = {
+  ENROLLED: 'ENROLLED',
+  DROPPED: 'DROPPED',
+  COMPLETED: 'COMPLETED',
+  SUSPENDED: 'SUSPENDED',
+} as const;
+
+export type EnrollmentStatus = (typeof ENROLLMENT_STATUS)[keyof typeof ENROLLMENT_STATUS];
+
+export const ENROLLMENT_SOURCE = {
+  ADMIN_MANUAL: 'ADMIN_MANUAL',
+  ADMIN_IMPORT: 'ADMIN_IMPORT',
+  STUDENT_SELF: 'STUDENT_SELF',
+  SYSTEM: 'SYSTEM',
+} as const;
+
+export type EnrollmentSource = (typeof ENROLLMENT_SOURCE)[keyof typeof ENROLLMENT_SOURCE];
+
+export const OFFERING_LECTURER_ROLE = {
+  PRIMARY: 'PRIMARY',
+  CO_LECTURER: 'CO_LECTURER',
+  ASSISTANT: 'ASSISTANT',
+} as const;
+
+export type OfferingLecturerRole = (typeof OFFERING_LECTURER_ROLE)[keyof typeof OFFERING_LECTURER_ROLE];
+
+export const courseOfferingsTable = pgTable(
+  'course_offerings',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    courseId: uuid('course_id')
+      .references(() => coursesTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    academicSession: text('academic_session')
+      .notNull(),
+
+    semester: text('semester')
+      .notNull(),
+
+    level: integer('level')
+      .notNull(),
+
+    section: text('section')
+      .default('DEFAULT')
+      .notNull(),
+
+    status: text('status')
+      .default('ACTIVE')
+      .notNull(),
+
+    maxCapacity: integer('max_capacity'),
+
+    createdBy: uuid('created_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    createdAt: timestamp('created_at')
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    courseSessionSemesterSectionUnique: unique('course_offerings_course_session_semester_section_unique').on(
+      table.courseId,
+      table.academicSession,
+      table.semester,
+      table.section
+    ),
+    courseSessionSemesterIdx: index('course_offerings_course_session_semester_idx').on(
+      table.courseId,
+      table.academicSession,
+      table.semester
+    ),
+    courseIdIdx: index('course_offerings_course_id_idx').on(table.courseId),
+    statusIdx: index('course_offerings_status_idx').on(table.status),
+    academicSessionIdx: index('course_offerings_academic_session_idx').on(table.academicSession),
+  })
+);
+
+export const offeringLecturersTable = pgTable(
+  'offering_lecturers',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    offeringId: uuid('offering_id')
+      .references(() => courseOfferingsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    lecturerId: uuid('lecturer_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    role: text('role')
+      .default('PRIMARY')
+      .notNull(),
+
+    status: text('status')
+      .default('ACTIVE')
+      .notNull(),
+
+    assignedBy: uuid('assigned_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    assignedAt: timestamp('assigned_at')
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    offeringLecturerUnique: unique('offering_lecturers_offering_lecturer_unique').on(
+      table.offeringId,
+      table.lecturerId
+    ),
+    offeringIdIdx: index('offering_lecturers_offering_id_idx').on(table.offeringId),
+    lecturerIdIdx: index('offering_lecturers_lecturer_id_idx').on(table.lecturerId),
+    statusIdx: index('offering_lecturers_status_idx').on(table.status),
+  })
+);
+
+export const studentEnrollmentsTable = pgTable(
+  'student_enrollments',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    studentId: uuid('student_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    offeringId: uuid('offering_id')
+      .references(() => courseOfferingsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    status: text('status')
+      .default('ENROLLED')
+      .notNull(),
+
+    source: text('source')
+      .default('ADMIN_MANUAL')
+      .notNull(),
+
+    enrolledBy: uuid('enrolled_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    enrolledAt: timestamp('enrolled_at')
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull(),
+
+    droppedAt: timestamp('dropped_at'),
+  },
+  (table) => ({
+    studentOfferingUnique: unique('student_enrollments_student_offering_unique').on(
+      table.studentId,
+      table.offeringId
+    ),
+    studentIdIdx: index('student_enrollments_student_id_idx').on(table.studentId),
+    offeringIdIdx: index('student_enrollments_offering_id_idx').on(table.offeringId),
+    statusIdx: index('student_enrollments_status_idx').on(table.status),
+    studentOfferingStatusIdx: index('student_enrollments_student_offering_status_idx').on(
+      table.studentId,
+      table.offeringId,
+      table.status
+    ),
+  })
+);
+
+

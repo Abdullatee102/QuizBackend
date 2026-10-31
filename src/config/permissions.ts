@@ -39,6 +39,9 @@ export const PERMISSIONS = {
   QUESTIONS_CREATE: 'questions.create',
   QUESTIONS_UPDATE: 'questions.update',
   QUESTIONS_DELETE: 'questions.delete',
+  QUESTIONS_REVIEW: 'questions.review',
+  QUESTIONS_APPROVE: 'questions.approve',
+  QUESTIONS_PUBLISH: 'questions.publish',
 
   // Support
   SUPPORT_READ: 'support.read',
@@ -59,6 +62,23 @@ export const PERMISSIONS = {
 
   // Feedback & Research (BB-03)
   FEEDBACK_READ: 'feedback.read',
+
+  // Lecturer Management & Course Assignments (BB-07B)
+  LECTURERS_READ: 'lecturers.read',
+  LECTURERS_CREATE: 'lecturers.create',
+  LECTURERS_UPDATE: 'lecturers.update',
+  LECTURER_ASSIGNMENTS_MANAGE: 'lecturer_assignments.manage',
+
+  // Course Offerings & Student Enrolments (BB-07F.2)
+  OFFERINGS_READ: 'offerings.read',
+  OFFERINGS_CREATE: 'offerings.create',
+  OFFERINGS_UPDATE: 'offerings.update',
+  OFFERINGS_DELETE: 'offerings.delete',
+  OFFERING_LECTURERS_MANAGE: 'offering_lecturers.manage',
+  ENROLLMENTS_READ: 'enrollments.read',
+  ENROLLMENTS_CREATE: 'enrollments.create',
+  ENROLLMENTS_UPDATE: 'enrollments.update',
+  ENROLLMENTS_DELETE: 'enrollments.delete',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS] | string;
@@ -78,7 +98,23 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.QUESTIONS_CREATE,
     PERMISSIONS.QUESTIONS_UPDATE,
     PERMISSIONS.QUESTIONS_DELETE,
+    PERMISSIONS.QUESTIONS_REVIEW,
+    PERMISSIONS.QUESTIONS_APPROVE,
+    PERMISSIONS.QUESTIONS_PUBLISH,
     'curriculum.*',
+    PERMISSIONS.LECTURERS_READ,
+    PERMISSIONS.LECTURER_ASSIGNMENTS_MANAGE,
+    'offerings.*',
+    PERMISSIONS.OFFERINGS_READ,
+    PERMISSIONS.OFFERINGS_CREATE,
+    PERMISSIONS.OFFERINGS_UPDATE,
+    PERMISSIONS.OFFERINGS_DELETE,
+    PERMISSIONS.OFFERING_LECTURERS_MANAGE,
+    'enrollments.*',
+    PERMISSIONS.ENROLLMENTS_READ,
+    PERMISSIONS.ENROLLMENTS_CREATE,
+    PERMISSIONS.ENROLLMENTS_UPDATE,
+    PERMISSIONS.ENROLLMENTS_DELETE,
   ],
 
   [USER_ROLES.SUPPORT_AGENT]: [
@@ -106,6 +142,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   ],
 
   [USER_ROLES.STUDENT]: [],
+  [USER_ROLES.LECTURER]: [],
 };
 
 export const hasPermission = (role: string, requiredPermission: string): boolean => {

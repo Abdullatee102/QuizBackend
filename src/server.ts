@@ -17,6 +17,7 @@ import supportRoutes from './routes/support.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import adminRoutes from './routes/admin/index.js';
 import feedbackRoutes from './routes/feedback.routes.js';
+import lecturerRoutes from './routes/lecturer/index.js';
 import { socketService } from './socket/index.js';
 
 // =====================================================
@@ -57,6 +58,9 @@ const allowedOrigins: string[] | '*' =
         ...(envConfig.ADMIN_WEB_ORIGIN
           ? envConfig.ADMIN_WEB_ORIGIN.split(',').map((o) => o.trim())
           : []),
+        ...(envConfig.LECTURER_WEB_ORIGIN
+          ? envConfig.LECTURER_WEB_ORIGIN.split(',').map((o) => o.trim())
+          : []),
       ];
 
 app.use(
@@ -92,6 +96,7 @@ app.use('/api/support', supportRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/lecturer', lecturerRoutes);
 
 // =====================================================
 // STEP 6: HEALTH CHECK ENDPOINTS (/health and /api/health)

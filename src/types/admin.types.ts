@@ -25,3 +25,10 @@ export interface AuditLogEntryInput {
   userAgent?: string | null;
 }
 
+export interface AuditContextInput {
+  adminId?: string | undefined;
+  ipAddress?: string | null | undefined;
+  userAgent?: string | null | undefined;
+}
+
+

@@ -637,6 +637,14 @@ export const quizService = {
           questionsTable.isActive,
           true
         ),
+        eq(
+          questionsTable.status,
+          'PUBLISHED'
+        ),
+        eq(
+          questionsTable.isPracticeEligible,
+          true
+        ),
       ];
 
       if (type) {
@@ -1095,6 +1103,13 @@ export const quizService = {
             questionsTable.difficulty,
         })
         .from(questionsTable)
+        .where(
+          and(
+            eq(questionsTable.isActive, true),
+            eq(questionsTable.status, 'PUBLISHED'),
+            eq(questionsTable.isPracticeEligible, true)
+          )
+        )
         .limit(limit * 3);
 
       const shuffled = [...allQuestions].sort(() => 0.5 - Math.random());
@@ -1134,6 +1149,8 @@ export const quizService = {
     const conditions = [
       eq(questionsTable.isActive, true),
       eq(coursesTable.isActive, true),
+      eq(questionsTable.status, 'PUBLISHED'),
+      eq(questionsTable.isPracticeEligible, true),
     ];
     if (type) {
       conditions.push(eq(questionsTable.type, type));

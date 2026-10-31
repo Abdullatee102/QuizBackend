@@ -15,6 +15,7 @@ export interface EnvConfig {
   MAIL_FROM_NAME: string;
   CORS_ORIGIN: string;
   ADMIN_WEB_ORIGIN: string | undefined;
+  LECTURER_WEB_ORIGIN: string | undefined;
   GOOGLE_WEB_CLIENT_ID: string | undefined;
   EXPO_ACCESS_TOKEN: string | undefined;
   GEMINI_API_KEY: string | undefined;
@@ -60,6 +61,7 @@ export function validateEnvironment(): EnvConfig {
   const MAIL_FROM_NAME = process.env.MAIL_FROM_NAME?.trim() || 'QuizApp';
   const CORS_ORIGIN = process.env.CORS_ORIGIN?.trim() || '*';
   const ADMIN_WEB_ORIGIN = process.env.ADMIN_WEB_ORIGIN?.trim();
+  const LECTURER_WEB_ORIGIN = process.env.LECTURER_WEB_ORIGIN?.trim();
   const GOOGLE_WEB_CLIENT_ID = process.env.GOOGLE_WEB_CLIENT_ID?.trim();
   const EXPO_ACCESS_TOKEN = process.env.EXPO_ACCESS_TOKEN?.trim();
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
@@ -78,6 +80,7 @@ export function validateEnvironment(): EnvConfig {
     MAIL_FROM_NAME,
     CORS_ORIGIN,
     ADMIN_WEB_ORIGIN,
+    LECTURER_WEB_ORIGIN,
     GOOGLE_WEB_CLIENT_ID,
     EXPO_ACCESS_TOKEN,
     GEMINI_API_KEY,
