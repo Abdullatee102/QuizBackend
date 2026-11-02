@@ -10,6 +10,7 @@ import auditLogsRoutes from './auditLogs.routes.js';
 import feedbackRoutes from './feedback.routes.js';
 import lecturersRoutes from './lecturers.routes.js';
 import offeringsRoutes from './offerings.routes.js';
+import assessmentsRoutes from './assessments.routes.js';
 
 const router = Router();
 
@@ -24,6 +25,7 @@ router.use('/audit-logs', auditLogsRoutes);
 router.use('/feedback', feedbackRoutes);
 router.use('/lecturers', lecturersRoutes);
 router.use('/offerings', offeringsRoutes);
+router.use('/assessments', assessmentsRoutes);
 
 export default router;
 

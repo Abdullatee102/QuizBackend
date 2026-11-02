@@ -15,6 +15,8 @@ import './gamification.test.js';
 import './lecturer.test.js';
 import './eligibility.test.js';
 import './questionWorkflow.test.js';
+import './assessmentWorkflow.test.js';
+import './assessmentParticipation.test.js';
 
 after(async () => {
   try {
@@ -23,4 +25,3 @@ after(async () => {
     // Ignore pool teardown errors
   }
 });
-

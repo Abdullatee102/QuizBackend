@@ -393,6 +393,124 @@ async function runMigration() {
     `);
     console.log('[MIGRATION] Question-Bank Authoring & Approval tables, versions, reviews, and legacy backfill verified (BB-07F.3)');
 
+    // 19. Ensure Assessment Authoring, Scheduling & Snapshots tables exist (BB-07F.4)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS assessments (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        offering_id uuid NOT NULL REFERENCES course_offerings(id) ON DELETE CASCADE,
+        course_id uuid NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        creator_lecturer_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title text NOT NULL,
+        description text,
+        type text NOT NULL DEFAULT 'CBT',
+        status text NOT NULL DEFAULT 'DRAFT',
+        total_marks real NOT NULL DEFAULT 0,
+        pass_marks real,
+        duration_minutes integer NOT NULL,
+        start_time timestamp with time zone NOT NULL,
+        end_time timestamp with time zone NOT NULL,
+        max_attempts integer NOT NULL DEFAULT 1,
+        is_randomized boolean NOT NULL DEFAULT false,
+        allow_late_submission boolean NOT NULL DEFAULT false,
+        late_submission_deadline timestamp with time zone,
+        result_release_policy text NOT NULL DEFAULT 'MANUAL_AFTER_GRADING',
+        results_released_at timestamp with time zone,
+        published_at timestamp with time zone,
+        published_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        cancelled_at timestamp with time zone,
+        cancellation_reason text,
+        created_at timestamp with time zone NOT NULL DEFAULT now(),
+        updated_at timestamp with time zone NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS assessments_offering_id_idx ON assessments (offering_id);
+      CREATE INDEX IF NOT EXISTS assessments_course_id_idx ON assessments (course_id);
+      CREATE INDEX IF NOT EXISTS assessments_creator_lecturer_idx ON assessments (creator_lecturer_id);
+      CREATE INDEX IF NOT EXISTS assessments_status_idx ON assessments (status);
+      CREATE INDEX IF NOT EXISTS assessments_schedule_idx ON assessments (start_time, end_time);
+
+      CREATE TABLE IF NOT EXISTS assessment_questions (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        assessment_id uuid NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+        question_id uuid NOT NULL REFERENCES questions(id) ON DELETE RESTRICT,
+        question_version integer NOT NULL DEFAULT 1,
+        order_index integer NOT NULL DEFAULT 0,
+        allocated_marks real NOT NULL DEFAULT 1,
+        snapshot jsonb,
+        created_at timestamp with time zone NOT NULL DEFAULT now(),
+        CONSTRAINT assessment_questions_unique UNIQUE (assessment_id, question_id)
+      );
+      CREATE INDEX IF NOT EXISTS assessment_questions_assessment_idx ON assessment_questions (assessment_id);
+      CREATE INDEX IF NOT EXISTS assessment_questions_order_idx ON assessment_questions (assessment_id, order_index);
+
+      CREATE TABLE IF NOT EXISTS assessment_audit_logs (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        assessment_id uuid NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+        actor_id uuid REFERENCES users(id) ON DELETE SET NULL,
+        actor_role text NOT NULL,
+        action text NOT NULL,
+        previous_state jsonb,
+        new_state jsonb,
+        reason text,
+        created_at timestamp with time zone NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS assessment_audit_logs_assessment_idx ON assessment_audit_logs (assessment_id);
+      CREATE INDEX IF NOT EXISTS assessment_audit_logs_actor_idx ON assessment_audit_logs (actor_id);
+    `);
+    console.log('[MIGRATION] Assessment Authoring & Scheduling tables, snapshots, and audit logs verified (BB-07F.4)');
+
+    // 20. Ensure Assessment Attempts, Answers & Attempt Events tables exist (BB-07F.5)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS assessment_attempts (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        assessment_id uuid NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+        student_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        attempt_number integer NOT NULL DEFAULT 1,
+        status text NOT NULL DEFAULT 'IN_PROGRESS',
+        started_at timestamp with time zone NOT NULL DEFAULT now(),
+        submitted_at timestamp with time zone,
+        expires_at timestamp with time zone NOT NULL,
+        last_heartbeat_at timestamp with time zone NOT NULL DEFAULT now(),
+        is_late boolean NOT NULL DEFAULT false,
+        client_ip text,
+        user_agent text,
+        created_at timestamp with time zone NOT NULL DEFAULT now(),
+        updated_at timestamp with time zone NOT NULL DEFAULT now(),
+        CONSTRAINT assessment_attempts_unique UNIQUE (assessment_id, student_id, attempt_number)
+      );
+      CREATE INDEX IF NOT EXISTS assessment_attempts_assessment_idx ON assessment_attempts (assessment_id);
+      CREATE INDEX IF NOT EXISTS assessment_attempts_student_idx ON assessment_attempts (student_id);
+      CREATE INDEX IF NOT EXISTS assessment_attempts_status_idx ON assessment_attempts (status);
+      CREATE INDEX IF NOT EXISTS assessment_attempts_assessment_student_idx ON assessment_attempts (assessment_id, student_id);
+
+      CREATE TABLE IF NOT EXISTS assessment_answers (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        attempt_id uuid NOT NULL REFERENCES assessment_attempts(id) ON DELETE CASCADE,
+        assessment_question_id uuid NOT NULL REFERENCES assessment_questions(id) ON DELETE CASCADE,
+        question_id uuid NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        answer text,
+        is_flagged boolean NOT NULL DEFAULT false,
+        client_version integer NOT NULL DEFAULT 1,
+        saved_at timestamp with time zone NOT NULL DEFAULT now(),
+        created_at timestamp with time zone NOT NULL DEFAULT now(),
+        updated_at timestamp with time zone NOT NULL DEFAULT now(),
+        CONSTRAINT assessment_answers_unique UNIQUE (attempt_id, assessment_question_id)
+      );
+      CREATE INDEX IF NOT EXISTS assessment_answers_attempt_idx ON assessment_answers (attempt_id);
+      CREATE INDEX IF NOT EXISTS assessment_answers_question_idx ON assessment_answers (assessment_question_id);
+
+      CREATE TABLE IF NOT EXISTS assessment_attempt_events (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        attempt_id uuid NOT NULL REFERENCES assessment_attempts(id) ON DELETE CASCADE,
+        event_type text NOT NULL,
+        event_data jsonb,
+        client_timestamp timestamp with time zone,
+        server_timestamp timestamp with time zone NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS assessment_attempt_events_attempt_idx ON assessment_attempt_events (attempt_id);
+      CREATE INDEX IF NOT EXISTS assessment_attempt_events_type_idx ON assessment_attempt_events (event_type);
+    `);
+    console.log('[MIGRATION] Assessment Attempts, Answers & Attempt Events tables verified (BB-07F.5)');
+
     console.log('[MIGRATION] All database schema migrations successfully completed!');
   } catch (error) {
     console.error('[MIGRATION ERROR]', error);

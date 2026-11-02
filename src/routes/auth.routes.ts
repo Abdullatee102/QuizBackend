@@ -38,6 +38,22 @@ import {
   getStudentEligibleOfferingsHandler,
   checkOfferingEligibilityHandler,
 } from '../controllers/student/enrollments.controller.js';
+import {
+  getStudentOfferingAssessmentsHandler,
+  getStudentAssessmentDetailsHandler,
+} from '../controllers/student/assessments.controller.js';
+import {
+  getAvailableAssessmentsHandler,
+  getAssessmentInstructionsHandler,
+  startOrResumeAttemptHandler,
+  saveAnswersHandler,
+  heartbeatHandler,
+  submitAttemptHandler,
+} from '../controllers/student/assessmentAttempts.controller.js';
+import {
+  saveAnswersSchema,
+  submitAttemptSchema,
+} from '../schemas/assessmentAttempt.schemas.js';
 
 
 import { validate } from '../middlewares/validate.middleware.js';
@@ -309,6 +325,38 @@ router.get(
 router.get('/enrollments', protect, getStudentEnrollmentsHandler);
 router.get('/offerings/eligible', protect, getStudentEligibleOfferingsHandler);
 router.get('/offerings/:offeringId/eligibility', protect, checkOfferingEligibilityHandler);
+
+// =====================================================
+// ACADEMIC ASSESSMENTS DISCOVERY (BB-07F.4)
+// =====================================================
+
+router.get('/offerings/:offeringId/assessments', protect, getStudentOfferingAssessmentsHandler);
+router.get('/assessments/:assessmentId', protect, getStudentAssessmentDetailsHandler);
+
+// =====================================================
+// ACADEMIC ASSESSMENTS EXAMINATION & ATTEMPTS (BB-07F.5)
+// =====================================================
+
+router.get('/assessments/available', protect, getAvailableAssessmentsHandler);
+router.get('/assessments/:assessmentId/instructions', protect, getAssessmentInstructionsHandler);
+router.post('/assessments/:assessmentId/attempts', protect, startOrResumeAttemptHandler);
+router.put(
+  '/assessments/:assessmentId/attempts/:attemptId/answers',
+  protect,
+  validate(saveAnswersSchema),
+  saveAnswersHandler
+);
+router.post(
+  '/assessments/:assessmentId/attempts/:attemptId/heartbeat',
+  protect,
+  heartbeatHandler
+);
+router.post(
+  '/assessments/:assessmentId/attempts/:attemptId/submit',
+  protect,
+  validate(submitAttemptSchema),
+  submitAttemptHandler
+);
 
 // =====================================================
 // LEGACY BACKWARD COMPATIBILITY

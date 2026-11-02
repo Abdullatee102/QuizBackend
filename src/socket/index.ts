@@ -1,10 +1,10 @@
 import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import logger from '../config/logger.js';
 import { db } from '../db/index.js';
-import { supportRequestsTable, usersTable } from '../db/schema.js';
+import { supportRequestsTable, usersTable, assessmentsTable, offeringLecturersTable } from '../db/schema.js';
 import { isAdminRole, hasPermission } from '../config/permissions.js';
 import { messageService } from '../services/messageService.js';
 
@@ -210,6 +210,61 @@ export const socketService = {
         } catch (err: any) {
           logger.error(`[SOCKET JOIN:SUPPORT ERROR]: ${err.message}`);
           socket.emit('error', { message: 'Failed to authorize support room join' });
+        }
+      });
+
+      // 5b. Join Assessment Monitoring Room (BB-07F.5)
+      socket.on('join:assessment:monitor', async (assessmentId: string) => {
+        if (!assessmentId || !userId) {
+          socket.emit('error', { message: 'Invalid assessment monitor request' });
+          return;
+        }
+
+        try {
+          const [assessment] = await db
+            .select({ offeringId: assessmentsTable.offeringId })
+            .from(assessmentsTable)
+            .where(eq(assessmentsTable.id, assessmentId as any));
+
+          if (!assessment) {
+            socket.emit('error', { message: 'Assessment not found' });
+            return;
+          }
+
+          const userRole = socket.data.user?.role?.toUpperCase();
+          let isAuthorized = false;
+
+          if (userRole === 'SUPER_ADMIN' || userRole === 'CONTENT_ADMIN') {
+            isAuthorized = true;
+          } else if (userRole === 'LECTURER') {
+            const [assignment] = await db
+              .select({ id: offeringLecturersTable.id })
+              .from(offeringLecturersTable)
+              .where(
+                and(
+                  eq(offeringLecturersTable.offeringId, assessment.offeringId),
+                  eq(offeringLecturersTable.lecturerId, userId as any),
+                  eq(offeringLecturersTable.status, 'ACTIVE')
+                )
+              );
+            if (assignment) isAuthorized = true;
+          }
+
+          if (!isAuthorized) {
+            socket.emit('unauthorized_assessment_monitor', {
+              assessmentId,
+              message: 'Forbidden. You are not authorized to monitor this assessment.',
+            });
+            return;
+          }
+
+          const roomName = `assessment:${assessmentId}:monitor`;
+          socket.join(roomName);
+          logger.info(`[SOCKET] User ${userId} (${userRole}) joined monitor room ${roomName}`);
+          socket.emit('joined', { room: roomName });
+        } catch (err: any) {
+          logger.error(`[SOCKET JOIN:ASSESSMENT:MONITOR ERROR]: ${err.message}`);
+          socket.emit('error', { message: 'Failed to authorize assessment monitor join' });
         }
       });
 

@@ -3,6 +3,7 @@ import authRoutes from './auth.routes.js';
 import coursesRoutes from './courses.routes.js';
 import offeringsRoutes from './offerings.routes.js';
 import questionsRoutes from './questions.routes.js';
+import assessmentsRoutes from './assessments.routes.js';
 import { lecturerLogin, getLecturerMe } from '../../controllers/lecturer/auth.controller.js';
 import {
   getLecturerDashboard,
@@ -32,6 +33,7 @@ router.get('/courses/:courseId', protectLecturer, requireLecturerCourseAssignmen
 // Nested routes
 router.use('/questions', questionsRoutes);
 router.use('/offerings', offeringsRoutes);
+router.use('/assessments', assessmentsRoutes);
 router.use('/', coursesRoutes);
 
 export default router;

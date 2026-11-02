@@ -7,6 +7,8 @@ import {
   facultiesTable,
   courseAssignmentsTable,
   questionsTable,
+  courseOfferingsTable,
+  offeringLecturersTable,
 } from '../db/schema.js';
 import type { LecturerDashboardOverview } from '../types/lecturer.types.js';
 
@@ -238,6 +240,20 @@ export const lecturerService = {
       return null;
     }
 
+    // 1b. Fetch active offeringId if available
+    const [offeringRec] = await db
+      .select({ offeringId: offeringLecturersTable.offeringId })
+      .from(offeringLecturersTable)
+      .innerJoin(courseOfferingsTable, eq(offeringLecturersTable.offeringId, courseOfferingsTable.id))
+      .where(
+        and(
+          eq(offeringLecturersTable.lecturerId, lecturerId as any),
+          eq(courseOfferingsTable.courseId, courseId as any),
+          eq(offeringLecturersTable.status, 'ACTIVE')
+        )
+      )
+      .limit(1);
+
     // 2. Fetch question summary stats
     const [counts] = await db
       .select({
@@ -255,6 +271,7 @@ export const lecturerService = {
 
     return {
       ...record,
+      offeringId: offeringRec?.offeringId || record.assignmentId,
       metrics: {
         totalQuestions: counts?.totalQuestions || 0,
         cbtQuestions: counts?.cbtQuestions || 0,

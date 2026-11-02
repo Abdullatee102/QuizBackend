@@ -79,6 +79,10 @@ export const PERMISSIONS = {
   ENROLLMENTS_CREATE: 'enrollments.create',
   ENROLLMENTS_UPDATE: 'enrollments.update',
   ENROLLMENTS_DELETE: 'enrollments.delete',
+
+  // Academic Assessments Oversight & Overrides (BB-07F.4)
+  ASSESSMENTS_READ: 'assessments.read',
+  ASSESSMENTS_OVERRIDE: 'assessments.override',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS] | string;
@@ -115,6 +119,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.ENROLLMENTS_CREATE,
     PERMISSIONS.ENROLLMENTS_UPDATE,
     PERMISSIONS.ENROLLMENTS_DELETE,
+    'assessments.*',
+    PERMISSIONS.ASSESSMENTS_READ,
+    PERMISSIONS.ASSESSMENTS_OVERRIDE,
   ],
 
   [USER_ROLES.SUPPORT_AGENT]: [

@@ -1473,4 +1473,413 @@ export const studentEnrollmentsTable = pgTable(
   })
 );
 
+// =====================================================
+// ASSESSMENTS & ACADEMIC EVALUATIONS (BB-07F.4)
+// =====================================================
+
+export const ASSESSMENT_TYPES = {
+  CBT: 'CBT',
+  THEORY: 'THEORY',
+  MIXED: 'MIXED',
+  ASSIGNMENT: 'ASSIGNMENT',
+} as const;
+
+export type AssessmentType = (typeof ASSESSMENT_TYPES)[keyof typeof ASSESSMENT_TYPES];
+
+export const ASSESSMENT_STATUS = {
+  DRAFT: 'DRAFT',
+  PUBLISHED: 'PUBLISHED',
+  CANCELLED: 'CANCELLED',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+
+export type AssessmentStatus = (typeof ASSESSMENT_STATUS)[keyof typeof ASSESSMENT_STATUS];
+
+export const RESULT_RELEASE_POLICY = {
+  IMMEDIATE: 'IMMEDIATE',
+  SCHEDULED: 'SCHEDULED',
+  MANUAL_AFTER_GRADING: 'MANUAL_AFTER_GRADING',
+} as const;
+
+export type ResultReleasePolicy =
+  (typeof RESULT_RELEASE_POLICY)[keyof typeof RESULT_RELEASE_POLICY];
+
+export interface QuestionSnapshot {
+  type: string;
+  question: string;
+  options: string[] | null;
+  correctAnswer: string;
+  gradingPoints: Array<{ concept: string; weight: number; aliases?: string[] }>;
+  explanation?: string | null;
+  imageUrl?: string | null;
+  points: number;
+}
+
+export const assessmentsTable = pgTable(
+  'assessments',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    offeringId: uuid('offering_id')
+      .references(() => courseOfferingsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    courseId: uuid('course_id')
+      .references(() => coursesTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    creatorLecturerId: uuid('creator_lecturer_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    title: text('title')
+      .notNull(),
+
+    description: text('description'),
+
+    type: text('type')
+      .default('CBT')
+      .notNull(), // 'CBT' | 'THEORY' | 'MIXED' | 'ASSIGNMENT'
+
+    status: text('status')
+      .default('DRAFT')
+      .notNull(), // 'DRAFT' | 'PUBLISHED' | 'CANCELLED' | 'ARCHIVED'
+
+    totalMarks: real('total_marks')
+      .default(0)
+      .notNull(),
+
+    passMarks: real('pass_marks'),
+
+    durationMinutes: integer('duration_minutes')
+      .notNull(),
+
+    startTime: timestamp('start_time', { withTimezone: true })
+      .notNull(),
+
+    endTime: timestamp('end_time', { withTimezone: true })
+      .notNull(),
+
+    maxAttempts: integer('max_attempts')
+      .default(1)
+      .notNull(),
+
+    isRandomized: boolean('is_randomized')
+      .default(false)
+      .notNull(),
+
+    allowLateSubmission: boolean('allow_late_submission')
+      .default(false)
+      .notNull(),
+
+    lateSubmissionDeadline: timestamp('late_submission_deadline', { withTimezone: true }),
+
+    resultReleasePolicy: text('result_release_policy')
+      .default('MANUAL_AFTER_GRADING')
+      .notNull(),
+
+    resultsReleasedAt: timestamp('results_released_at', { withTimezone: true }),
+
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+
+    publishedBy: uuid('published_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+
+    cancellationReason: text('cancellation_reason'),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    offeringIdIdx: index('assessments_offering_id_idx').on(table.offeringId),
+    courseIdIdx: index('assessments_course_id_idx').on(table.courseId),
+    creatorLecturerIdx: index('assessments_creator_lecturer_idx').on(table.creatorLecturerId),
+    statusIdx: index('assessments_status_idx').on(table.status),
+    scheduleIdx: index('assessments_schedule_idx').on(table.startTime, table.endTime),
+  })
+);
+
+export const assessmentQuestionsTable = pgTable(
+  'assessment_questions',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    assessmentId: uuid('assessment_id')
+      .references(() => assessmentsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    questionId: uuid('question_id')
+      .references(() => questionsTable.id, {
+        onDelete: 'restrict',
+      })
+      .notNull(),
+
+    questionVersion: integer('question_version')
+      .default(1)
+      .notNull(),
+
+    orderIndex: integer('order_index')
+      .default(0)
+      .notNull(),
+
+    allocatedMarks: real('allocated_marks')
+      .default(1)
+      .notNull(),
+
+    snapshot: jsonb('snapshot')
+      .$type<QuestionSnapshot>(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    assessmentQuestionUnique: unique('assessment_questions_unique').on(
+      table.assessmentId,
+      table.questionId
+    ),
+    assessmentOrderIdx: index('assessment_questions_order_idx').on(
+      table.assessmentId,
+      table.orderIndex
+    ),
+  })
+);
+
+export const assessmentAuditLogsTable = pgTable(
+  'assessment_audit_logs',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    assessmentId: uuid('assessment_id')
+      .references(() => assessmentsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    actorId: uuid('actor_id')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    actorRole: text('actor_role')
+      .notNull(), // 'LECTURER' | 'SUPER_ADMIN' | 'SYSTEM'
+
+    action: text('action')
+      .notNull(),
+
+    previousState: jsonb('previous_state'),
+
+    newState: jsonb('new_state'),
+
+    reason: text('reason'),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    assessmentAuditAssessmentIdx: index('assessment_audit_logs_assessment_idx').on(
+      table.assessmentId
+    ),
+    assessmentAuditActorIdx: index('assessment_audit_logs_actor_idx').on(table.actorId),
+  })
+);
+
+// =====================================================
+// ASSESSMENT PARTICIPATION & ATTEMPTS (BB-07F.5)
+// =====================================================
+
+export const ATTEMPT_STATUS = {
+  IN_PROGRESS: 'IN_PROGRESS',
+  SUBMITTED: 'SUBMITTED',
+  TIMED_OUT: 'TIMED_OUT',
+  CANCELLED: 'CANCELLED',
+} as const;
+
+export type AttemptStatus = (typeof ATTEMPT_STATUS)[keyof typeof ATTEMPT_STATUS];
+
+export const assessmentAttemptsTable = pgTable(
+  'assessment_attempts',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    assessmentId: uuid('assessment_id')
+      .references(() => assessmentsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    studentId: uuid('student_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    attemptNumber: integer('attempt_number')
+      .default(1)
+      .notNull(),
+
+    status: text('status')
+      .default('IN_PROGRESS')
+      .notNull(), // 'IN_PROGRESS' | 'SUBMITTED' | 'TIMED_OUT' | 'CANCELLED'
+
+    startedAt: timestamp('started_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+
+    expiresAt: timestamp('expires_at', { withTimezone: true })
+      .notNull(),
+
+    lastHeartbeatAt: timestamp('last_heartbeat_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    isLate: boolean('is_late')
+      .default(false)
+      .notNull(),
+
+    clientIp: text('client_ip'),
+
+    userAgent: text('user_agent'),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    attemptAssessmentStudentUnique: unique('assessment_attempts_unique').on(
+      table.assessmentId,
+      table.studentId,
+      table.attemptNumber
+    ),
+    attemptAssessmentIdx: index('assessment_attempts_assessment_idx').on(table.assessmentId),
+    attemptStudentIdx: index('assessment_attempts_student_idx').on(table.studentId),
+    attemptStatusIdx: index('assessment_attempts_status_idx').on(table.status),
+    attemptAssessmentStudentIdx: index('assessment_attempts_assessment_student_idx').on(
+      table.assessmentId,
+      table.studentId
+    ),
+  })
+);
+
+export const assessmentAnswersTable = pgTable(
+  'assessment_answers',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    attemptId: uuid('attempt_id')
+      .references(() => assessmentAttemptsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    assessmentQuestionId: uuid('assessment_question_id')
+      .references(() => assessmentQuestionsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    questionId: uuid('question_id')
+      .references(() => questionsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    answer: text('answer'),
+
+    isFlagged: boolean('is_flagged')
+      .default(false)
+      .notNull(),
+
+    clientVersion: integer('client_version')
+      .default(1)
+      .notNull(),
+
+    savedAt: timestamp('saved_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    attemptQuestionUnique: unique('assessment_answers_unique').on(
+      table.attemptId,
+      table.assessmentQuestionId
+    ),
+    answerAttemptIdx: index('assessment_answers_attempt_idx').on(table.attemptId),
+    answerQuestionIdx: index('assessment_answers_question_idx').on(table.assessmentQuestionId),
+  })
+);
+
+export const assessmentAttemptEventsTable = pgTable(
+  'assessment_attempt_events',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    attemptId: uuid('attempt_id')
+      .references(() => assessmentAttemptsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    eventType: text('event_type')
+      .notNull(), // 'ATTEMPT_STARTED' | 'HEARTBEAT' | 'ANSWER_SAVED' | 'ATTEMPT_SUBMITTED' | 'ATTEMPT_TIMED_OUT' | 'FORCE_SUBMITTED'
+
+    eventData: jsonb('event_data'),
+
+    clientTimestamp: timestamp('client_timestamp', { withTimezone: true }),
+
+    serverTimestamp: timestamp('server_timestamp', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    attemptEventsAttemptIdx: index('assessment_attempt_events_attempt_idx').on(table.attemptId),
+    attemptEventsTypeIdx: index('assessment_attempt_events_type_idx').on(table.eventType),
+  })
+);
+
+
+
 
