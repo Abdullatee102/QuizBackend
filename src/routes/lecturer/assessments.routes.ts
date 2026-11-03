@@ -15,6 +15,12 @@ import {
   getAssessmentMonitorHandler,
   forceSubmitAttemptHandler,
 } from '../../controllers/lecturer/assessmentMonitor.controller.js';
+import {
+  getLecturerGradingOverviewHandler,
+  getAttemptGradingDetailHandler,
+  gradeTheoryQuestionsHandler,
+  getAiTheorySuggestionHandler,
+} from '../../controllers/lecturer/assessmentGrading.controller.js';
 import { protectLecturer } from '../../middlewares/lecturerAuth.middleware.js';
 import { validate } from '../../middlewares/validate.middleware.js';
 import {
@@ -25,7 +31,7 @@ import {
   extendAssessmentSchema,
   cancelAssessmentSchema,
 } from '../../schemas/assessment.schemas.js';
-import { forceSubmitSchema } from '../../schemas/assessmentAttempt.schemas.js';
+import { forceSubmitSchema, gradeTheorySchema } from '../../schemas/assessmentAttempt.schemas.js';
 
 const router = Router();
 
@@ -51,6 +57,19 @@ router.post(
   '/:assessmentId/attempts/:attemptId/force-submit',
   validate(forceSubmitSchema),
   forceSubmitAttemptHandler
+);
+
+// Formal Grading & Rubric Evaluation (BB-07F.6)
+router.get('/:assessmentId/grading', getLecturerGradingOverviewHandler);
+router.get('/:assessmentId/attempts/:attemptId/grading', getAttemptGradingDetailHandler);
+router.post(
+  '/:assessmentId/attempts/:attemptId/grade-theory',
+  validate(gradeTheorySchema),
+  gradeTheoryQuestionsHandler
+);
+router.post(
+  '/:assessmentId/attempts/:attemptId/questions/:assessmentQuestionId/ai-assist',
+  getAiTheorySuggestionHandler
 );
 
 export default router;

@@ -7,11 +7,11 @@ export const getAssessmentMonitorHandler = async (
   res: Response
 ): Promise<void> => {
   try {
-    const lecturerId = req.user?.id ? String(req.user.id) : null;
-    const userRole = req.user?.role || 'LECTURER';
+    const lecturerId = (req as any).lecturerUser?.id || req.user?.id ? String((req as any).lecturerUser?.id || req.user?.id) : null;
+    const userRole = (req as any).lecturerUser?.role || req.user?.role || 'LECTURER';
 
     if (!lecturerId) {
-      res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      res.status(401).json({ status: 'fail', success: false, message: 'Unauthorized' });
       return;
     }
 
@@ -20,6 +20,7 @@ export const getAssessmentMonitorHandler = async (
 
     res.status(200).json({
       status: 'success',
+      success: true,
       data,
     });
   } catch (error: any) {
@@ -27,6 +28,7 @@ export const getAssessmentMonitorHandler = async (
     const isNotFound = error.message?.includes('not found');
     res.status(isForbidden ? 403 : isNotFound ? 404 : 400).json({
       status: 'fail',
+      success: false,
       message: error.message || 'Failed to retrieve assessment monitoring data.',
     });
   }
@@ -37,11 +39,11 @@ export const forceSubmitAttemptHandler = async (
   res: Response
 ): Promise<void> => {
   try {
-    const lecturerId = req.user?.id ? String(req.user.id) : null;
-    const userRole = req.user?.role || 'LECTURER';
+    const lecturerId = (req as any).lecturerUser?.id || req.user?.id ? String((req as any).lecturerUser?.id || req.user?.id) : null;
+    const userRole = (req as any).lecturerUser?.role || req.user?.role || 'LECTURER';
 
     if (!lecturerId) {
-      res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      res.status(401).json({ status: 'fail', success: false, message: 'Unauthorized' });
       return;
     }
 
@@ -63,6 +65,7 @@ export const forceSubmitAttemptHandler = async (
     const isNotFound = error.message?.includes('not found');
     res.status(isForbidden ? 403 : isNotFound ? 404 : 400).json({
       status: 'fail',
+      success: false,
       message: error.message || 'Failed to force-submit attempt.',
     });
   }

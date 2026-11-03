@@ -511,6 +511,74 @@ async function runMigration() {
     `);
     console.log('[MIGRATION] Assessment Attempts, Answers & Attempt Events tables verified (BB-07F.5)');
 
+    // 21. Ensure Assessment Grades, Question Grades & Grading Audit Logs exist (BB-07F.6)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS assessment_grades (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        attempt_id uuid NOT NULL REFERENCES assessment_attempts(id) ON DELETE CASCADE,
+        assessment_id uuid NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+        student_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        cbt_score real NOT NULL DEFAULT 0,
+        theory_score real NOT NULL DEFAULT 0,
+        total_score real NOT NULL DEFAULT 0,
+        max_possible_score real NOT NULL DEFAULT 0,
+        percentage real NOT NULL DEFAULT 0,
+        is_passing boolean,
+        status text NOT NULL DEFAULT 'PENDING_GRADING',
+        cbt_graded_at timestamp with time zone,
+        theory_graded_at timestamp with time zone,
+        final_graded_at timestamp with time zone,
+        graded_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT now(),
+        updated_at timestamp with time zone NOT NULL DEFAULT now(),
+        CONSTRAINT assessment_grades_attempt_unique UNIQUE (attempt_id)
+      );
+      CREATE INDEX IF NOT EXISTS assessment_grades_assessment_idx ON assessment_grades (assessment_id);
+      CREATE INDEX IF NOT EXISTS assessment_grades_student_idx ON assessment_grades (student_id);
+      CREATE INDEX IF NOT EXISTS assessment_grades_status_idx ON assessment_grades (status);
+
+      CREATE TABLE IF NOT EXISTS assessment_question_grades (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        attempt_id uuid NOT NULL REFERENCES assessment_attempts(id) ON DELETE CASCADE,
+        assessment_question_id uuid NOT NULL REFERENCES assessment_questions(id) ON DELETE CASCADE,
+        answer_id uuid REFERENCES assessment_answers(id) ON DELETE SET NULL,
+        student_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        question_type text NOT NULL,
+        max_marks real NOT NULL DEFAULT 1,
+        awarded_marks real NOT NULL DEFAULT 0,
+        is_correct boolean,
+        grading_method text NOT NULL DEFAULT 'AUTO_CBT',
+        rubric_scores jsonb,
+        feedback text,
+        graded_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        graded_at timestamp with time zone NOT NULL DEFAULT now(),
+        created_at timestamp with time zone NOT NULL DEFAULT now(),
+        updated_at timestamp with time zone NOT NULL DEFAULT now(),
+        CONSTRAINT assessment_question_grades_unique UNIQUE (attempt_id, assessment_question_id)
+      );
+      CREATE INDEX IF NOT EXISTS assessment_question_grades_attempt_idx ON assessment_question_grades (attempt_id);
+      CREATE INDEX IF NOT EXISTS assessment_question_grades_question_idx ON assessment_question_grades (assessment_question_id);
+
+      CREATE TABLE IF NOT EXISTS assessment_grading_audit_logs (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        attempt_id uuid NOT NULL REFERENCES assessment_attempts(id) ON DELETE CASCADE,
+        assessment_question_id uuid REFERENCES assessment_questions(id) ON DELETE SET NULL,
+        actor_id uuid REFERENCES users(id) ON DELETE SET NULL,
+        actor_role text NOT NULL DEFAULT 'LECTURER',
+        action text NOT NULL,
+        previous_score real,
+        new_score real NOT NULL,
+        previous_status text,
+        new_status text NOT NULL,
+        reason text,
+        metadata jsonb,
+        created_at timestamp with time zone NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS assessment_grading_audit_attempt_idx ON assessment_grading_audit_logs (attempt_id);
+      CREATE INDEX IF NOT EXISTS assessment_grading_audit_actor_idx ON assessment_grading_audit_logs (actor_id);
+    `);
+    console.log('[MIGRATION] Assessment Grades, Question Grades & Grading Audit Logs tables verified (BB-07F.6)');
+
     console.log('[MIGRATION] All database schema migrations successfully completed!');
   } catch (error) {
     console.error('[MIGRATION ERROR]', error);

@@ -4,6 +4,8 @@ import {
   adminGetAssessmentDetailsHandler,
   adminGetAssessmentAuditLogsHandler,
   adminSuspendAssessmentHandler,
+  adminGetGradingOversightHandler,
+  adminRetryCbtGradingHandler,
 } from '../../controllers/admin/assessments.controller.js';
 import { protectAdmin, requirePermission } from '../../middlewares/adminAuth.middleware.js';
 import { validate } from '../../middlewares/validate.middleware.js';
@@ -37,6 +39,18 @@ router.post(
   requirePermission(PERMISSIONS.ASSESSMENTS_OVERRIDE),
   validate(adminSuspendAssessmentSchema),
   adminSuspendAssessmentHandler
+);
+
+router.get(
+  '/:assessmentId/grading-oversight',
+  requirePermission(PERMISSIONS.ASSESSMENTS_READ),
+  adminGetGradingOversightHandler
+);
+
+router.post(
+  '/:assessmentId/attempts/:attemptId/retry-cbt-grading',
+  requirePermission(PERMISSIONS.ASSESSMENTS_OVERRIDE),
+  adminRetryCbtGradingHandler
 );
 
 export default router;

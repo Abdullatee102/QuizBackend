@@ -34,3 +34,28 @@ export const forceSubmitSchema = z.object({
   }),
 });
 
+export const gradeTheorySchema = z.object({
+  body: z.object({
+    questionGrades: z
+      .array(
+        z.object({
+          assessmentQuestionId: z.string().uuid('Invalid assessment question ID'),
+          awardedMarks: z.number().min(0, 'Awarded marks cannot be negative'),
+          rubricScores: z
+            .array(
+              z.object({
+                concept: z.string().min(1),
+                maxWeight: z.number().min(0),
+                awardedWeight: z.number().min(0),
+                comment: z.string().optional(),
+              })
+            )
+            .optional(),
+          feedback: z.string().optional(),
+        })
+      )
+      .min(1, 'At least one question grade must be provided'),
+    reason: z.string().optional(),
+  }),
+});
+

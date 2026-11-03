@@ -11,9 +11,11 @@ import {
   coursesTable,
   usersTable,
   offeringLecturersTable,
+  assessmentGradesTable,
   type QuestionSnapshot,
 } from '../db/schema.js';
 import { eligibilityService } from './eligibilityService.js';
+import { assessmentGradingService } from './assessmentGradingService.js';
 import { socketService } from '../socket/index.js';
 import logger from '../config/logger.js';
 
@@ -70,6 +72,13 @@ export const assessmentAttemptService = {
           eventData: { reason: 'Server-authoritative timer expired' },
           serverTimestamp: now,
         });
+
+        // Trigger automatic deterministic CBT grading for timed-out attempt
+        try {
+          await assessmentGradingService.gradeCbtAttempt(att.id);
+        } catch (gradeErr: any) {
+          logger.error(`[ASSESSMENT] Auto-grading timed-out attempt ${att.id} failed: ${gradeErr?.message}`);
+        }
 
         // Notify live monitoring room
         try {
@@ -193,6 +202,48 @@ export const assessmentAttemptService = {
       const attemptsCount = studentAttempts.length;
       const activeAttempt = studentAttempts.find((att) => att.status === 'IN_PROGRESS');
 
+      // Fetch grading statuses for submitted/timed-out attempts (strictly omitting raw marks/keys)
+      const attemptIds = studentAttempts.map((att) => att.id);
+      const grades =
+        attemptIds.length > 0
+          ? await db
+              .select({
+                attemptId: assessmentGradesTable.attemptId,
+                status: assessmentGradesTable.status,
+              })
+              .from(assessmentGradesTable)
+              .where(inArray(assessmentGradesTable.attemptId, attemptIds as any[]))
+          : [];
+
+      const gradeStatusMap = new Map<string, string>();
+      for (const g of grades) {
+        gradeStatusMap.set(g.attemptId, g.status);
+      }
+
+      const mappedAttempts = studentAttempts.map((att) => {
+        let gradingStatus: string | null = null;
+        if (att.status === 'SUBMITTED' || att.status === 'TIMED_OUT') {
+          const gStatus = gradeStatusMap.get(att.id);
+          if (gStatus === 'COMPLETED' || gStatus === 'AUTO_GRADED') {
+            gradingStatus = 'GRADING_COMPLETED';
+          } else if (gStatus === 'NEEDS_THEORY_GRADING') {
+            gradingStatus = 'AWAITING_EVALUATION';
+          } else if (gStatus === 'PARTIALLY_GRADED') {
+            gradingStatus = 'PARTIALLY_GRADED';
+          } else {
+            gradingStatus = 'SUBMITTED';
+          }
+        }
+        return {
+          ...att,
+          gradingStatus,
+        };
+      });
+
+      const latestAttempt = mappedAttempts[0] || null;
+      const studentAttemptStatus = latestAttempt ? latestAttempt.status : null;
+      const latestGradingStatus = latestAttempt ? latestAttempt.gradingStatus : null;
+
       const canStart = operationalStatus === 'OPEN' && attemptsCount < a.maxAttempts && !activeAttempt;
       const canResume = !!activeAttempt;
 
@@ -205,7 +256,9 @@ export const assessmentAttemptService = {
         canResume,
         activeAttemptId: activeAttempt ? activeAttempt.id : null,
         activeAttemptExpiresAt: activeAttempt ? activeAttempt.expiresAt : null,
-        attempts: studentAttempts,
+        studentAttemptStatus,
+        gradingStatus: latestGradingStatus,
+        attempts: mappedAttempts,
       });
     }
 
@@ -970,6 +1023,13 @@ export const assessmentAttemptService = {
       serverTimestamp: now,
     });
 
+    // Trigger server-side deterministic CBT auto-grading
+    try {
+      await assessmentGradingService.gradeCbtAttempt(updatedAttempt.id);
+    } catch (gradeErr: any) {
+      logger.error(`[ASSESSMENT] Auto-grading submitted attempt ${updatedAttempt.id} failed: ${gradeErr?.message}`);
+    }
+
     // Real-time broadcast to lecturer monitoring room
     try {
       socketService.emitToRoom(`assessment:${assessmentId}:monitor`, 'assessment:attempt:update', {
@@ -1307,6 +1367,10 @@ export const assessmentAttemptService = {
       .where(eq(assessmentAttemptsTable.id, attempt.id))
       .returning();
 
+    if (!updatedAttempt) {
+      throw new Error('Failed to force submit attempt.');
+    }
+
     // Log force-submit event
     await db.insert(assessmentAttemptEventsTable).values({
       attemptId: attempt.id,
@@ -1318,6 +1382,13 @@ export const assessmentAttemptService = {
       },
       serverTimestamp: now,
     });
+
+    // Trigger server-side deterministic CBT auto-grading
+    try {
+      await assessmentGradingService.gradeCbtAttempt(updatedAttempt.id);
+    } catch (gradeErr: any) {
+      logger.error(`[ASSESSMENT] Auto-grading force-submitted attempt ${updatedAttempt.id} failed: ${gradeErr?.message}`);
+    }
 
     // Real-time notification
     try {

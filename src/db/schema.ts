@@ -1880,6 +1880,249 @@ export const assessmentAttemptEventsTable = pgTable(
   })
 );
 
+// =====================================================
+// FORMAL ASSESSMENT GRADING & RUBRIC EVALUATION (BB-07F.6)
+// =====================================================
+
+export const GRADING_STATUS = {
+  PENDING_GRADING: 'PENDING_GRADING',
+  AUTO_GRADED: 'AUTO_GRADED',
+  NEEDS_THEORY_GRADING: 'NEEDS_THEORY_GRADING',
+  PARTIALLY_GRADED: 'PARTIALLY_GRADED',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+} as const;
+
+export type GradingStatus = (typeof GRADING_STATUS)[keyof typeof GRADING_STATUS];
+
+export const GRADING_METHOD = {
+  AUTO_CBT: 'AUTO_CBT',
+  MANUAL_RUBRIC: 'MANUAL_RUBRIC',
+  AI_ASSISTED_MANUAL: 'AI_ASSISTED_MANUAL',
+} as const;
+
+export type GradingMethodType = (typeof GRADING_METHOD)[keyof typeof GRADING_METHOD];
+
+export interface RubricScoreItem {
+  concept: string;
+  maxWeight: number;
+  awardedWeight: number;
+  comment?: string;
+}
+
+export const assessmentGradesTable = pgTable(
+  'assessment_grades',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    attemptId: uuid('attempt_id')
+      .references(() => assessmentAttemptsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    assessmentId: uuid('assessment_id')
+      .references(() => assessmentsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    studentId: uuid('student_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    cbtScore: real('cbt_score')
+      .default(0)
+      .notNull(),
+
+    theoryScore: real('theory_score')
+      .default(0)
+      .notNull(),
+
+    totalScore: real('total_score')
+      .default(0)
+      .notNull(),
+
+    maxPossibleScore: real('max_possible_score')
+      .default(0)
+      .notNull(),
+
+    percentage: real('percentage')
+      .default(0)
+      .notNull(),
+
+    isPassing: boolean('is_passing'),
+
+    status: text('status')
+      .default('PENDING_GRADING')
+      .notNull(), // 'PENDING_GRADING' | 'AUTO_GRADED' | 'NEEDS_THEORY_GRADING' | 'PARTIALLY_GRADED' | 'COMPLETED' | 'FAILED'
+
+    cbtGradedAt: timestamp('cbt_graded_at', { withTimezone: true }),
+
+    theoryGradedAt: timestamp('theory_graded_at', { withTimezone: true }),
+
+    finalGradedAt: timestamp('final_graded_at', { withTimezone: true }),
+
+    gradedBy: uuid('graded_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    gradeAttemptUnique: unique('assessment_grades_attempt_unique').on(table.attemptId),
+    gradeAssessmentIdx: index('assessment_grades_assessment_idx').on(table.assessmentId),
+    gradeStudentIdx: index('assessment_grades_student_idx').on(table.studentId),
+    gradeStatusIdx: index('assessment_grades_status_idx').on(table.status),
+  })
+);
+
+export const assessmentQuestionGradesTable = pgTable(
+  'assessment_question_grades',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    attemptId: uuid('attempt_id')
+      .references(() => assessmentAttemptsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    assessmentQuestionId: uuid('assessment_question_id')
+      .references(() => assessmentQuestionsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    answerId: uuid('answer_id')
+      .references(() => assessmentAnswersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    studentId: uuid('student_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    questionType: text('question_type')
+      .notNull(), // 'cbt' | 'theory' | 'multiple_choice' | 'boolean' etc.
+
+    maxMarks: real('max_marks')
+      .default(1)
+      .notNull(),
+
+    awardedMarks: real('awarded_marks')
+      .default(0)
+      .notNull(),
+
+    isCorrect: boolean('is_correct'),
+
+    gradingMethod: text('grading_method')
+      .default('AUTO_CBT')
+      .notNull(), // 'AUTO_CBT' | 'MANUAL_RUBRIC' | 'AI_ASSISTED_MANUAL'
+
+    rubricScores: jsonb('rubric_scores')
+      .$type<RubricScoreItem[]>(),
+
+    feedback: text('feedback'),
+
+    gradedBy: uuid('graded_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    gradedAt: timestamp('graded_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    questionGradeUnique: unique('assessment_question_grades_unique').on(
+      table.attemptId,
+      table.assessmentQuestionId
+    ),
+    questionGradeAttemptIdx: index('assessment_question_grades_attempt_idx').on(table.attemptId),
+    questionGradeQuestionIdx: index('assessment_question_grades_question_idx').on(
+      table.assessmentQuestionId
+    ),
+  })
+);
+
+export const assessmentGradingAuditLogsTable = pgTable(
+  'assessment_grading_audit_logs',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    attemptId: uuid('attempt_id')
+      .references(() => assessmentAttemptsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    assessmentQuestionId: uuid('assessment_question_id')
+      .references(() => assessmentQuestionsTable.id, {
+        onDelete: 'set null',
+      }),
+
+    actorId: uuid('actor_id')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    actorRole: text('actor_role')
+      .default('LECTURER')
+      .notNull(), // 'LECTURER' | 'ADMIN'
+
+    action: text('action')
+      .notNull(), // 'CBT_AUTO_GRADED' | 'THEORY_GRADED' | 'GRADE_OVERRIDE' | 'FEEDBACK_UPDATED' | 'RE_EVALUATED'
+
+    previousScore: real('previous_score'),
+
+    newScore: real('new_score')
+      .notNull(),
+
+    previousStatus: text('previous_status'),
+
+    newStatus: text('new_status')
+      .notNull(),
+
+    reason: text('reason'),
+
+    metadata: jsonb('metadata'),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    gradingAuditAttemptIdx: index('assessment_grading_audit_attempt_idx').on(table.attemptId),
+    gradingAuditActorIdx: index('assessment_grading_audit_actor_idx').on(table.actorId),
+  })
+);
+
 
 
 

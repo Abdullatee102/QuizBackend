@@ -1,5 +1,6 @@
 import type { Response } from 'express';
 import { assessmentService } from '../../services/assessmentService.js';
+import { assessmentGradingService } from '../../services/assessmentGradingService.js';
 import type { AdminAuthenticatedRequest } from '../../types/admin.types.js';
 
 export const adminListAssessmentsHandler = async (
@@ -141,6 +142,64 @@ export const adminSuspendAssessmentHandler = async (
     res.status(isNotFound ? 404 : 400).json({
       status: 'fail',
       message: error.message || 'Failed to suspend assessment.',
+    });
+  }
+};
+
+export const adminGetGradingOversightHandler = async (
+  req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const adminId = req.adminUser?.id;
+    if (!adminId) {
+      res.status(401).json({ status: 'fail', success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const assessmentId = String(req.params.assessmentId);
+    const result = await assessmentGradingService.getAdminGradingOversight(assessmentId);
+
+    res.status(200).json({
+      status: 'success',
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    const isNotFound = error.message?.includes('not found');
+    res.status(isNotFound ? 404 : 400).json({
+      status: 'fail',
+      success: false,
+      message: error.message || 'Failed to retrieve assessment grading oversight.',
+    });
+  }
+};
+
+export const adminRetryCbtGradingHandler = async (
+  req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const adminId = req.adminUser?.id;
+    if (!adminId) {
+      res.status(401).json({ status: 'fail', success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const attemptId = String(req.params.attemptId);
+    const grade = await assessmentGradingService.gradeCbtAttempt(attemptId);
+
+    res.status(200).json({
+      status: 'success',
+      success: true,
+      message: 'CBT grading recalculated successfully.',
+      data: { grade },
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      status: 'fail',
+      success: false,
+      message: error.message || 'Failed to retry CBT grading.',
     });
   }
 };

@@ -7,6 +7,7 @@ import {
   coursesTable,
   courseOfferingsTable,
   offeringLecturersTable,
+  courseAssignmentsTable,
   usersTable,
   QUESTION_STATUS,
   type QuestionStatus,
@@ -78,15 +79,58 @@ export const questionWorkflowService = {
       throw new Error('Forbidden. Lecturer account is inactive or suspended.');
     }
 
-    // 2. Verify offering exists and is active
-    const [offering] = await db
+    // 2. Verify offering exists and is active (with fallback resolution from course_assignments)
+    let resolvedOfferingId = offeringId;
+    let [offering] = await db
       .select({
         id: courseOfferingsTable.id,
         courseId: courseOfferingsTable.courseId,
         status: courseOfferingsTable.status,
       })
       .from(courseOfferingsTable)
-      .where(eq(courseOfferingsTable.id, offeringId as any));
+      .where(eq(courseOfferingsTable.id, resolvedOfferingId as any));
+
+    if (!offering) {
+      // Check if offeringId was passed as an assignmentId or courseId
+      const [assignmentRec] = await db
+        .select({
+          courseId: courseAssignmentsTable.courseId,
+          academicSession: courseAssignmentsTable.academicSession,
+          semester: courseAssignmentsTable.semester,
+        })
+        .from(courseAssignmentsTable)
+        .where(
+          and(
+            eq(courseAssignmentsTable.lecturerId, lecturerId as any),
+            or(
+              eq(courseAssignmentsTable.id, resolvedOfferingId as any),
+              eq(courseAssignmentsTable.courseId, resolvedOfferingId as any)
+            ),
+            eq(courseAssignmentsTable.status, 'ACTIVE')
+          )
+        );
+
+      if (assignmentRec) {
+        const [matchingOffering] = await db
+          .select({
+            id: courseOfferingsTable.id,
+            courseId: courseOfferingsTable.courseId,
+            status: courseOfferingsTable.status,
+          })
+          .from(courseOfferingsTable)
+          .where(
+            and(
+              eq(courseOfferingsTable.courseId, assignmentRec.courseId),
+              eq(courseOfferingsTable.academicSession, assignmentRec.academicSession),
+              eq(courseOfferingsTable.semester, assignmentRec.semester)
+            )
+          );
+        if (matchingOffering) {
+          offering = matchingOffering;
+          resolvedOfferingId = matchingOffering.id;
+        }
+      }
+    }
 
     if (!offering) {
       throw new Error('Course offering not found.');
@@ -97,16 +141,47 @@ export const questionWorkflowService = {
     }
 
     // 3. Verify lecturer is actively assigned to this offering
-    const [assignment] = await db
+    let [assignment] = await db
       .select({ id: offeringLecturersTable.id })
       .from(offeringLecturersTable)
       .where(
         and(
-          eq(offeringLecturersTable.offeringId, offeringId as any),
+          eq(offeringLecturersTable.offeringId, resolvedOfferingId as any),
           eq(offeringLecturersTable.lecturerId, lecturerId as any),
           eq(offeringLecturersTable.status, 'ACTIVE')
         )
       );
+
+    if (!assignment && offering) {
+      // Check if lecturer is assigned in courseAssignmentsTable and auto-link
+      const [cAssign] = await db
+        .select({ id: courseAssignmentsTable.id })
+        .from(courseAssignmentsTable)
+        .where(
+          and(
+            eq(courseAssignmentsTable.courseId, offering.courseId),
+            eq(courseAssignmentsTable.lecturerId, lecturerId as any),
+            eq(courseAssignmentsTable.status, 'ACTIVE')
+          )
+        );
+
+      if (cAssign) {
+        try {
+          const [newOL] = await db
+            .insert(offeringLecturersTable)
+            .values({
+              offeringId: resolvedOfferingId as any,
+              lecturerId: lecturerId as any,
+              role: 'PRIMARY',
+              status: 'ACTIVE',
+            })
+            .returning();
+          assignment = newOL;
+        } catch {
+          // ignore concurrent insert
+        }
+      }
+    }
 
     if (!assignment) {
       throw new Error('Forbidden. You are not actively assigned to this course offering.');
@@ -121,7 +196,7 @@ export const questionWorkflowService = {
       .insert(questionsTable)
       .values({
         courseId: offering.courseId as any,
-        originOfferingId: offeringId as any,
+        originOfferingId: resolvedOfferingId as any,
         authorLecturerId: lecturerId as any,
         status: QUESTION_STATUS.DRAFT,
         type: normalizedType,
@@ -332,9 +407,13 @@ export const questionWorkflowService = {
     }
 
     // 2. Enforce status lock
-    if (question.status !== QUESTION_STATUS.DRAFT && question.status !== QUESTION_STATUS.REVISION_REQUIRED) {
+    if (
+      question.status !== QUESTION_STATUS.DRAFT &&
+      question.status !== QUESTION_STATUS.REVISION_REQUIRED &&
+      question.status !== QUESTION_STATUS.REJECTED
+    ) {
       throw new Error(
-        `Question cannot be edited in ${question.status} status. Only DRAFT or REVISION_REQUIRED questions can be modified.`
+        `Question cannot be edited in ${question.status} status. Only DRAFT, REVISION_REQUIRED, or REJECTED questions can be modified.`
       );
     }
 
@@ -359,6 +438,10 @@ export const questionWorkflowService = {
     const updates: Record<string, any> = {
       updatedAt: new Date(),
     };
+
+    if (question.status === QUESTION_STATUS.REJECTED) {
+      updates.status = QUESTION_STATUS.DRAFT;
+    }
 
     if (data.type !== undefined) updates.type = data.type;
     if (data.question !== undefined) updates.question = data.question.trim();

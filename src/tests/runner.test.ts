@@ -17,6 +17,7 @@ import './eligibility.test.js';
 import './questionWorkflow.test.js';
 import './assessmentWorkflow.test.js';
 import './assessmentParticipation.test.js';
+import './assessmentGrading.test.js';
 
 after(async () => {
   try {

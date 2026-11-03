@@ -162,29 +162,44 @@ export const lecturerService = {
     const [courses, countResult] = await Promise.all([coursesQuery, countQuery]);
     const total = countResult[0]?.count || 0;
 
-    // Enrich courses with question count metrics (safe summary without answer leak)
+    // Enrich courses with question count metrics and offeringId (safe summary without answer leak)
     const enrichedCourses = await Promise.all(
       courses.map(async (c) => {
-        const [counts] = await db
-          .select({
-            totalQuestions: sql<number>`count(*)`.mapWith(Number),
-            cbtQuestions: sql<number>`count(case when ${questionsTable.type} = 'cbt' then 1 end)`.mapWith(Number),
-            theoryQuestions: sql<number>`count(case when ${questionsTable.type} = 'theory' then 1 end)`.mapWith(Number),
-          })
-          .from(questionsTable)
-          .where(
-            and(
-              eq(questionsTable.courseId, c.courseId),
-              eq(questionsTable.isActive, true)
+        const [counts, offeringRec] = await Promise.all([
+          db
+            .select({
+              totalQuestions: sql<number>`count(*)`.mapWith(Number),
+              cbtQuestions: sql<number>`count(case when ${questionsTable.type} = 'cbt' then 1 end)`.mapWith(Number),
+              theoryQuestions: sql<number>`count(case when ${questionsTable.type} = 'theory' then 1 end)`.mapWith(Number),
+            })
+            .from(questionsTable)
+            .where(
+              and(
+                eq(questionsTable.courseId, c.courseId),
+                eq(questionsTable.isActive, true)
+              )
+            ),
+          db
+            .select({ offeringId: offeringLecturersTable.offeringId })
+            .from(offeringLecturersTable)
+            .innerJoin(courseOfferingsTable, eq(offeringLecturersTable.offeringId, courseOfferingsTable.id))
+            .where(
+              and(
+                eq(offeringLecturersTable.lecturerId, lecturerId as any),
+                eq(courseOfferingsTable.courseId, c.courseId as any),
+                eq(offeringLecturersTable.status, 'ACTIVE')
+              )
             )
-          );
+            .limit(1),
+        ]);
 
         return {
           ...c,
+          offeringId: offeringRec[0]?.offeringId || null,
           metrics: {
-            totalQuestions: counts?.totalQuestions || 0,
-            cbtQuestions: counts?.cbtQuestions || 0,
-            theoryQuestions: counts?.theoryQuestions || 0,
+            totalQuestions: counts[0]?.totalQuestions || 0,
+            cbtQuestions: counts[0]?.cbtQuestions || 0,
+            theoryQuestions: counts[0]?.theoryQuestions || 0,
           },
         };
       })
@@ -240,8 +255,8 @@ export const lecturerService = {
       return null;
     }
 
-    // 1b. Fetch active offeringId if available
-    const [offeringRec] = await db
+    // 1b. Fetch active offeringId or auto-heal from course_offerings
+    let [offeringRec] = await db
       .select({ offeringId: offeringLecturersTable.offeringId })
       .from(offeringLecturersTable)
       .innerJoin(courseOfferingsTable, eq(offeringLecturersTable.offeringId, courseOfferingsTable.id))
@@ -253,6 +268,83 @@ export const lecturerService = {
         )
       )
       .limit(1);
+
+    if (!offeringRec) {
+      // Find or create matching course_offerings row
+      let [offering] = await db
+        .select()
+        .from(courseOfferingsTable)
+        .where(
+          and(
+            eq(courseOfferingsTable.courseId, record.courseId as any),
+            eq(courseOfferingsTable.academicSession, record.academicSession),
+            eq(courseOfferingsTable.semester, record.semester)
+          )
+        );
+
+      if (!offering) {
+        try {
+          const [created] = await db
+            .insert(courseOfferingsTable)
+            .values({
+              courseId: record.courseId as any,
+              academicSession: record.academicSession,
+              semester: record.semester,
+              level: record.level,
+              section: 'DEFAULT',
+              status: 'ACTIVE',
+            })
+            .returning();
+          offering = created;
+        } catch {
+          // If already created concurrently, retrieve it
+          const [retrieved] = await db
+            .select()
+            .from(courseOfferingsTable)
+            .where(
+              and(
+                eq(courseOfferingsTable.courseId, record.courseId as any),
+                eq(courseOfferingsTable.academicSession, record.academicSession),
+                eq(courseOfferingsTable.semester, record.semester)
+              )
+            );
+          offering = retrieved;
+        }
+      }
+
+      if (offering) {
+        // Link lecturer in offering_lecturers
+        const [existingOL] = await db
+          .select()
+          .from(offeringLecturersTable)
+          .where(
+            and(
+              eq(offeringLecturersTable.offeringId, offering.id),
+              eq(offeringLecturersTable.lecturerId, lecturerId as any)
+            )
+          );
+
+        if (!existingOL) {
+          try {
+            await db.insert(offeringLecturersTable).values({
+              offeringId: offering.id,
+              lecturerId: lecturerId as any,
+              role: 'PRIMARY',
+              status: 'ACTIVE',
+            });
+          } catch {
+            // ignore duplicate
+          }
+        } else if (existingOL.status !== 'ACTIVE') {
+          await db
+            .update(offeringLecturersTable)
+            .set({ status: 'ACTIVE' })
+            .where(eq(offeringLecturersTable.id, existingOL.id));
+        }
+
+        offeringRec = { offeringId: offering.id };
+      }
+    }
 
     // 2. Fetch question summary stats
     const [counts] = await db

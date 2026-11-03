@@ -6,6 +6,8 @@ import {
   departmentsTable,
   facultiesTable,
   courseAssignmentsTable,
+  courseOfferingsTable,
+  offeringLecturersTable,
   USER_ROLES,
   ACCOUNT_STATUS,
 } from '../../db/schema.js';
@@ -385,6 +387,75 @@ export const adminLecturerService = {
       resultAssignment = inserted;
     }
 
+    // Synchronize course_offerings and offering_lecturers
+    try {
+      let [offering] = await db
+        .select()
+        .from(courseOfferingsTable)
+        .where(
+          and(
+            eq(courseOfferingsTable.courseId, courseId as any),
+            eq(courseOfferingsTable.academicSession, academicSession),
+            eq(courseOfferingsTable.semester, semester)
+          )
+        );
+
+      if (!offering) {
+        const [newOffering] = await db
+          .insert(courseOfferingsTable)
+          .values({
+            courseId: courseId as any,
+            academicSession,
+            semester,
+            level: course.level,
+            section: 'DEFAULT',
+            status: 'ACTIVE',
+            createdBy: adminUserId as any,
+          })
+          .returning();
+        offering = newOffering;
+      } else if (offering.status !== 'ACTIVE') {
+        const [reactivated] = await db
+          .update(courseOfferingsTable)
+          .set({ status: 'ACTIVE', updatedAt: new Date() })
+          .where(eq(courseOfferingsTable.id, offering.id))
+          .returning();
+        offering = reactivated;
+      }
+
+      if (offering) {
+        const [existingOL] = await db
+          .select()
+          .from(offeringLecturersTable)
+          .where(
+            and(
+              eq(offeringLecturersTable.offeringId, offering.id),
+              eq(offeringLecturersTable.lecturerId, lecturerId as any)
+            )
+          );
+
+        if (!existingOL) {
+          await db.insert(offeringLecturersTable).values({
+            offeringId: offering.id,
+            lecturerId: lecturerId as any,
+            role: 'PRIMARY',
+            status: 'ACTIVE',
+            assignedBy: adminUserId as any,
+          });
+        } else if (existingOL.status !== 'ACTIVE') {
+          await db
+            .update(offeringLecturersTable)
+            .set({
+              status: 'ACTIVE',
+              assignedBy: adminUserId as any,
+            })
+            .where(eq(offeringLecturersTable.id, existingOL.id));
+        }
+      }
+    } catch (syncErr: any) {
+      logger.warn('[ASSIGN_LECTURER_COURSE] Non-fatal sync to course_offerings/offering_lecturers warning: %s', syncErr?.message);
+    }
+
     await auditService.logAdminAction({
       adminUserId,
       action: 'ASSIGN_LECTURER_COURSE',
@@ -460,6 +531,34 @@ export const adminLecturerService = {
       })
       .where(eq(courseAssignmentsTable.id, existingAssignment.id))
       .returning();
+
+    // Synchronize revocation to offering_lecturers
+    try {
+      const [matchingOffering] = await db
+        .select({ id: courseOfferingsTable.id })
+        .from(courseOfferingsTable)
+        .where(
+          and(
+            eq(courseOfferingsTable.courseId, courseId as any),
+            eq(courseOfferingsTable.academicSession, existingAssignment.academicSession),
+            eq(courseOfferingsTable.semester, existingAssignment.semester)
+          )
+        );
+
+      if (matchingOffering) {
+        await db
+          .update(offeringLecturersTable)
+          .set({ status: 'REVOKED' })
+          .where(
+            and(
+              eq(offeringLecturersTable.offeringId, matchingOffering.id),
+              eq(offeringLecturersTable.lecturerId, lecturerId as any)
+            )
+          );
+      }
+    } catch (syncErr: any) {
+      logger.warn('[REVOKE_LECTURER_COURSE] Non-fatal sync to offering_lecturers warning: %s', syncErr?.message);
+    }
 
     await auditService.logAdminAction({
       adminUserId,

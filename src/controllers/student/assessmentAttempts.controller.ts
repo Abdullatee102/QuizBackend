@@ -17,11 +17,13 @@ export const getAvailableAssessmentsHandler = async (
 
     res.status(200).json({
       status: 'success',
+      success: true,
       data: { assessments },
     });
   } catch (error: any) {
     res.status(400).json({
       status: 'fail',
+      success: false,
       message: error.message || 'Failed to retrieve available assessments.',
     });
   }
@@ -43,6 +45,7 @@ export const getAssessmentInstructionsHandler = async (
 
     res.status(200).json({
       status: 'success',
+      success: true,
       data: result,
     });
   } catch (error: any) {
@@ -50,6 +53,7 @@ export const getAssessmentInstructionsHandler = async (
     const isNotFound = error.message?.includes('not found');
     res.status(isForbidden ? 403 : isNotFound ? 404 : 400).json({
       status: 'fail',
+      success: false,
       message: error.message || 'Failed to retrieve assessment instructions.',
     });
   }
@@ -62,7 +66,7 @@ export const startOrResumeAttemptHandler = async (
   try {
     const studentId = req.user?.id ? String(req.user.id) : null;
     if (!studentId) {
-      res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      res.status(401).json({ status: 'fail', success: false, message: 'Unauthorized' });
       return;
     }
 
@@ -76,6 +80,7 @@ export const startOrResumeAttemptHandler = async (
 
     res.status(200).json({
       status: 'success',
+      success: true,
       data: result,
     });
   } catch (error: any) {
@@ -83,6 +88,7 @@ export const startOrResumeAttemptHandler = async (
     const isNotFound = error.message?.includes('not found');
     res.status(isForbidden ? 403 : isNotFound ? 404 : 400).json({
       status: 'fail',
+      success: false,
       message: error.message || 'Failed to initialize assessment attempt.',
     });
   }
@@ -111,6 +117,7 @@ export const saveAnswersHandler = async (
     const isExpired = error.message?.includes('expired') || error.message?.includes('timed out');
     res.status(isForbidden ? 403 : isExpired ? 400 : 400).json({
       status: 'fail',
+      success: false,
       message: error.message || 'Failed to save answers.',
     });
   }
@@ -134,11 +141,13 @@ export const heartbeatHandler = async (
 
     res.status(200).json({
       status: 'success',
+      success: true,
       data: result,
     });
   } catch (error: any) {
     res.status(400).json({
       status: 'fail',
+      success: false,
       message: error.message || 'Heartbeat update failed.',
     });
   }
@@ -166,6 +175,7 @@ export const submitAttemptHandler = async (
     const isExpired = error.message?.includes('timed out') || error.message?.includes('passed');
     res.status(isExpired ? 400 : 400).json({
       status: 'fail',
+      success: false,
       message: error.message || 'Failed to submit assessment.',
     });
   }

@@ -107,6 +107,7 @@ export const protectLecturer = async (
     };
 
     req.lecturerUser = lecturerPayload;
+    (req as any).user = lecturerPayload;
     next();
   } catch (error: any) {
     logger.warn(`[LECTURER AUTH ERROR] Token verification failed: ${error.message}`);

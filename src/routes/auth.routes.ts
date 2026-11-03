@@ -327,18 +327,14 @@ router.get('/offerings/eligible', protect, getStudentEligibleOfferingsHandler);
 router.get('/offerings/:offeringId/eligibility', protect, checkOfferingEligibilityHandler);
 
 // =====================================================
-// ACADEMIC ASSESSMENTS DISCOVERY (BB-07F.4)
+// =====================================================
+// ACADEMIC ASSESSMENTS DISCOVERY & ATTEMPTS (BB-07F.4 & BB-07F.5)
 // =====================================================
 
 router.get('/offerings/:offeringId/assessments', protect, getStudentOfferingAssessmentsHandler);
-router.get('/assessments/:assessmentId', protect, getStudentAssessmentDetailsHandler);
-
-// =====================================================
-// ACADEMIC ASSESSMENTS EXAMINATION & ATTEMPTS (BB-07F.5)
-// =====================================================
-
 router.get('/assessments/available', protect, getAvailableAssessmentsHandler);
 router.get('/assessments/:assessmentId/instructions', protect, getAssessmentInstructionsHandler);
+router.get('/assessments/:assessmentId', protect, getStudentAssessmentDetailsHandler);
 router.post('/assessments/:assessmentId/attempts', protect, startOrResumeAttemptHandler);
 router.put(
   '/assessments/:assessmentId/attempts/:attemptId/answers',
