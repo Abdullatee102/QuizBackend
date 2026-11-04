@@ -56,3 +56,16 @@ export const queryAssignedCoursesSchema = z.object({
     academicSession: z.string().optional(),
   }).optional(),
 });
+
+export const updateLecturerProfileSchema = z.object({
+  params: z.object({
+    lecturerId: z.string().uuid('Invalid lecturer ID'),
+  }),
+  body: z.object({
+    fullName: z.string().min(2, 'Full name must be at least 2 characters').trim().optional(),
+    phoneNumber: z.string().min(5).trim().optional().nullable(),
+    facultyId: z.string().uuid('Invalid faculty ID').optional().nullable(),
+    departmentId: z.string().uuid('Invalid department ID').optional().nullable(),
+    status: z.enum(['ACTIVE', 'SUSPENDED', 'DEACTIVATED']).optional(),
+  }),
+});

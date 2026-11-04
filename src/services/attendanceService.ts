@@ -1,0 +1,819 @@
+import { db } from '../db/index.js';
+import {
+  attendanceSessionsTable,
+  attendanceRecordsTable,
+  attendanceAuditLogsTable,
+  courseOfferingsTable,
+  coursesTable,
+  usersTable,
+  studentEnrollmentsTable,
+  departmentsTable,
+  facultiesTable,
+  ATTENDANCE_SESSION_STATUSES,
+  ATTENDANCE_RECORD_STATUSES,
+  type AttendanceSessionStatus,
+  type AttendanceRecordStatus,
+} from '../db/schema.js';
+import { eq, and, sql, desc, asc, inArray } from 'drizzle-orm';
+import { assessmentService } from './assessmentService.js';
+import type {
+  CreateAttendanceSessionInput,
+  UpdateAttendanceSessionInput,
+  RecordAttendanceBatchInput,
+  UpdateAttendanceRecordInput,
+} from '../schemas/attendance.schemas.js';
+import logger from '../config/logger.js';
+
+export const attendanceService = {
+  /**
+   * Create an attendance session for an authorized course offering.
+   */
+  createSession: async (
+    lecturerId: string,
+    offeringId: string,
+    input: CreateAttendanceSessionInput
+  ) => {
+    await assessmentService.verifyLecturerAssignment(lecturerId, offeringId);
+
+    const [session] = await db
+      .insert(attendanceSessionsTable)
+      .values({
+        offeringId: offeringId as any,
+        createdBy: lecturerId as any,
+        title: input.title,
+        sessionType: input.sessionType || 'LECTURE',
+        sessionDate: new Date(input.sessionDate),
+        startTime: input.startTime || null,
+        endTime: input.endTime || null,
+        status: ATTENDANCE_SESSION_STATUSES.OPEN,
+        notes: input.notes || null,
+      })
+      .returning();
+
+    if (!session) {
+      throw new Error('Failed to create attendance session.');
+    }
+
+    logger.info(`[ATTENDANCE] Session created: ${session.id} for offering: ${offeringId} by lecturer: ${lecturerId}`);
+    return session;
+  },
+
+  /**
+   * Update attendance session parameters or status (OPEN / CLOSED / CANCELLED).
+   */
+  updateSession: async (
+    lecturerId: string,
+    offeringId: string,
+    sessionId: string,
+    input: UpdateAttendanceSessionInput
+  ) => {
+    await assessmentService.verifyLecturerAssignment(lecturerId, offeringId);
+
+    const [existing] = await db
+      .select()
+      .from(attendanceSessionsTable)
+      .where(
+        and(
+          eq(attendanceSessionsTable.id, sessionId as any),
+          eq(attendanceSessionsTable.offeringId, offeringId as any)
+        )
+      );
+
+    if (!existing) {
+      throw new Error('Attendance session not found for this course offering.');
+    }
+
+    const updatePayload: Record<string, any> = {
+      updatedAt: new Date(),
+    };
+
+    if (input.title !== undefined) updatePayload.title = input.title;
+    if (input.sessionType !== undefined) updatePayload.sessionType = input.sessionType;
+    if (input.sessionDate !== undefined) updatePayload.sessionDate = new Date(input.sessionDate);
+    if (input.startTime !== undefined) updatePayload.startTime = input.startTime;
+    if (input.endTime !== undefined) updatePayload.endTime = input.endTime;
+    if (input.status !== undefined) updatePayload.status = input.status;
+    if (input.notes !== undefined) updatePayload.notes = input.notes;
+
+    const [updated] = await db
+      .update(attendanceSessionsTable)
+      .set(updatePayload)
+      .where(eq(attendanceSessionsTable.id, sessionId as any))
+      .returning();
+
+    return updated;
+  },
+
+  /**
+   * List all attendance sessions for an offering with summary status counts.
+   */
+  listSessions: async (
+    lecturerId: string,
+    offeringId: string,
+    options: { status?: string | undefined; page?: number | undefined; limit?: number | undefined } = {}
+  ) => {
+    await assessmentService.verifyLecturerAssignment(lecturerId, offeringId);
+
+    const page = Math.max(1, options.page || 1);
+    const limit = Math.min(50, Math.max(1, options.limit || 20));
+    const offset = (page - 1) * limit;
+
+    const conditions = [eq(attendanceSessionsTable.offeringId, offeringId as any)];
+    if (options.status) {
+      conditions.push(eq(attendanceSessionsTable.status, options.status as any));
+    }
+
+    const whereClause = and(...conditions);
+
+    // Count total sessions
+    const [countResult] = await db
+      .select({ count: sql<number>`cast(count(*) as integer)` })
+      .from(attendanceSessionsTable)
+      .where(whereClause);
+
+    const totalSessions = countResult?.count || 0;
+
+    // Fetch sessions ordered by date descending
+    const sessions = await db
+      .select({
+        id: attendanceSessionsTable.id,
+        offeringId: attendanceSessionsTable.offeringId,
+        title: attendanceSessionsTable.title,
+        sessionType: attendanceSessionsTable.sessionType,
+        sessionDate: attendanceSessionsTable.sessionDate,
+        startTime: attendanceSessionsTable.startTime,
+        endTime: attendanceSessionsTable.endTime,
+        status: attendanceSessionsTable.status,
+        notes: attendanceSessionsTable.notes,
+        createdAt: attendanceSessionsTable.createdAt,
+        updatedAt: attendanceSessionsTable.updatedAt,
+      })
+      .from(attendanceSessionsTable)
+      .where(whereClause)
+      .orderBy(desc(attendanceSessionsTable.sessionDate), desc(attendanceSessionsTable.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Get stats for these sessions
+    const sessionIds = sessions.map((s) => s.id);
+    let statsMap: Record<string, { present: number; absent: number; late: number; excused: number; total: number }> = {};
+
+    if (sessionIds.length > 0) {
+      const records = await db
+        .select({
+          sessionId: attendanceRecordsTable.sessionId,
+          status: attendanceRecordsTable.status,
+          count: sql<number>`cast(count(*) as integer)`,
+        })
+        .from(attendanceRecordsTable)
+        .where(inArray(attendanceRecordsTable.sessionId, sessionIds as any))
+        .groupBy(attendanceRecordsTable.sessionId, attendanceRecordsTable.status);
+
+      for (const row of records) {
+        if (!statsMap[row.sessionId]) {
+          statsMap[row.sessionId] = { present: 0, absent: 0, late: 0, excused: 0, total: 0 };
+        }
+        const sStat = statsMap[row.sessionId]!;
+        if (row.status === ATTENDANCE_RECORD_STATUSES.PRESENT) sStat.present = row.count;
+        if (row.status === ATTENDANCE_RECORD_STATUSES.ABSENT) sStat.absent = row.count;
+        if (row.status === ATTENDANCE_RECORD_STATUSES.LATE) sStat.late = row.count;
+        if (row.status === ATTENDANCE_RECORD_STATUSES.EXCUSED) sStat.excused = row.count;
+        sStat.total += row.count;
+      }
+    }
+
+    const sessionsWithStats = sessions.map((s) => ({
+      ...s,
+      stats: statsMap[s.id] || { present: 0, absent: 0, late: 0, excused: 0, total: 0 },
+    }));
+
+    return {
+      sessions: sessionsWithStats,
+      pagination: {
+        page,
+        limit,
+        total: totalSessions,
+        totalPages: Math.ceil(totalSessions / limit),
+      },
+    };
+  },
+
+  /**
+   * Get attendance session details and complete student roll-call roster.
+   */
+  getSessionDetails: async (
+    lecturerId: string,
+    offeringId: string,
+    sessionId: string
+  ) => {
+    await assessmentService.verifyLecturerAssignment(lecturerId, offeringId);
+
+    const [session] = await db
+      .select({
+        id: attendanceSessionsTable.id,
+        offeringId: attendanceSessionsTable.offeringId,
+        title: attendanceSessionsTable.title,
+        sessionType: attendanceSessionsTable.sessionType,
+        sessionDate: attendanceSessionsTable.sessionDate,
+        startTime: attendanceSessionsTable.startTime,
+        endTime: attendanceSessionsTable.endTime,
+        status: attendanceSessionsTable.status,
+        notes: attendanceSessionsTable.notes,
+        createdAt: attendanceSessionsTable.createdAt,
+        updatedAt: attendanceSessionsTable.updatedAt,
+        courseCode: coursesTable.code,
+        courseTitle: coursesTable.title,
+        academicSession: courseOfferingsTable.academicSession,
+        semester: courseOfferingsTable.semester,
+      })
+      .from(attendanceSessionsTable)
+      .innerJoin(courseOfferingsTable, eq(attendanceSessionsTable.offeringId, courseOfferingsTable.id))
+      .innerJoin(coursesTable, eq(courseOfferingsTable.courseId, coursesTable.id))
+      .where(
+        and(
+          eq(attendanceSessionsTable.id, sessionId as any),
+          eq(attendanceSessionsTable.offeringId, offeringId as any)
+        )
+      );
+
+    if (!session) {
+      throw new Error('Attendance session not found for this course offering.');
+    }
+
+    // Get all enrolled students for this offering
+    const enrolledStudents = await db
+      .select({
+        studentId: usersTable.id,
+        fullName: usersTable.fullName,
+        username: usersTable.username,
+        email: usersTable.email,
+        level: usersTable.level,
+        departmentName: departmentsTable.name,
+      })
+      .from(studentEnrollmentsTable)
+      .innerJoin(usersTable, eq(studentEnrollmentsTable.studentId, usersTable.id))
+      .leftJoin(departmentsTable, eq(usersTable.departmentId, departmentsTable.id))
+      .where(
+        and(
+          eq(studentEnrollmentsTable.offeringId, offeringId as any),
+          eq(studentEnrollmentsTable.status, 'ENROLLED')
+        )
+      )
+      .orderBy(asc(usersTable.fullName));
+
+    // Get all recorded attendance for this session
+    const recordedAttendance = await db
+      .select({
+        id: attendanceRecordsTable.id,
+        studentId: attendanceRecordsTable.studentId,
+        status: attendanceRecordsTable.status,
+        remarks: attendanceRecordsTable.remarks,
+        markedAt: attendanceRecordsTable.markedAt,
+        markedBy: attendanceRecordsTable.markedBy,
+        updatedAt: attendanceRecordsTable.updatedAt,
+        updatedBy: attendanceRecordsTable.updatedBy,
+      })
+      .from(attendanceRecordsTable)
+      .where(eq(attendanceRecordsTable.sessionId, sessionId as any));
+
+    const recordsMap = new Map<string, typeof recordedAttendance[0]>();
+    for (const rec of recordedAttendance) {
+      recordsMap.set(rec.studentId, rec);
+    }
+
+    // Merge student roster with attendance status
+    const roster = enrolledStudents.map((st) => {
+      const record = recordsMap.get(st.studentId);
+      return {
+        studentId: st.studentId,
+        fullName: st.fullName,
+        username: st.username,
+        email: st.email,
+        level: st.level,
+        departmentName: st.departmentName,
+        isMarked: Boolean(record),
+        recordId: record?.id || null,
+        status: (record?.status as AttendanceRecordStatus) || null,
+        remarks: record?.remarks || null,
+        markedAt: record?.markedAt || null,
+        updatedAt: record?.updatedAt || null,
+      };
+    });
+
+    const stats = {
+      enrolledTotal: enrolledStudents.length,
+      markedTotal: recordedAttendance.length,
+      present: recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.PRESENT).length,
+      absent: recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.ABSENT).length,
+      late: recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.LATE).length,
+      excused: recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.EXCUSED).length,
+    };
+
+    return {
+      session,
+      stats,
+      roster,
+    };
+  },
+
+  /**
+   * Batch record attendance for enrolled students in a session.
+   */
+  recordBatchAttendance: async (
+    lecturerId: string,
+    offeringId: string,
+    sessionId: string,
+    input: RecordAttendanceBatchInput
+  ) => {
+    await assessmentService.verifyLecturerAssignment(lecturerId, offeringId);
+
+    const [session] = await db
+      .select()
+      .from(attendanceSessionsTable)
+      .where(
+        and(
+          eq(attendanceSessionsTable.id, sessionId as any),
+          eq(attendanceSessionsTable.offeringId, offeringId as any)
+        )
+      );
+
+    if (!session) {
+      throw new Error('Attendance session not found for this course offering.');
+    }
+
+    if (session.status === ATTENDANCE_SESSION_STATUSES.CANCELLED) {
+      throw new Error('Cannot record attendance for a cancelled session.');
+    }
+
+    // Verify all students are enrolled in this offering
+    const studentIds = input.records.map((r) => r.studentId);
+    const enrolledStudents = await db
+      .select({ studentId: studentEnrollmentsTable.studentId })
+      .from(studentEnrollmentsTable)
+      .where(
+        and(
+          eq(studentEnrollmentsTable.offeringId, offeringId as any),
+          eq(studentEnrollmentsTable.status, 'ENROLLED'),
+          inArray(studentEnrollmentsTable.studentId, studentIds as any)
+        )
+      );
+
+    const enrolledSet = new Set(enrolledStudents.map((e) => e.studentId));
+    const ineligibleStudents = studentIds.filter((id) => !enrolledSet.has(id));
+
+    if (ineligibleStudents.length > 0) {
+      throw new Error(
+        `Cannot record attendance. The following students are not actively enrolled in this offering: ${ineligibleStudents.join(', ')}`
+      );
+    }
+
+    // Upsert attendance records
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    for (const rec of input.records) {
+      const [existing] = await db
+        .select({ id: attendanceRecordsTable.id, status: attendanceRecordsTable.status })
+        .from(attendanceRecordsTable)
+        .where(
+          and(
+            eq(attendanceRecordsTable.sessionId, sessionId as any),
+            eq(attendanceRecordsTable.studentId, rec.studentId as any)
+          )
+        );
+
+      if (existing) {
+        await db
+          .update(attendanceRecordsTable)
+          .set({
+            status: rec.status,
+            remarks: rec.remarks || null,
+            updatedBy: lecturerId as any,
+            updatedAt: new Date(),
+          })
+          .where(eq(attendanceRecordsTable.id, existing.id));
+        updatedCount++;
+      } else {
+        await db
+          .insert(attendanceRecordsTable)
+          .values({
+            sessionId: sessionId as any,
+            studentId: rec.studentId as any,
+            status: rec.status,
+            remarks: rec.remarks || null,
+            markedBy: lecturerId as any,
+            markedAt: new Date(),
+            updatedAt: new Date(),
+          });
+        createdCount++;
+      }
+    }
+
+    logger.info(
+      `[ATTENDANCE] Recorded batch attendance for session ${sessionId}: ${createdCount} created, ${updatedCount} updated by lecturer ${lecturerId}`
+    );
+
+    return {
+      sessionId,
+      totalSubmitted: input.records.length,
+      createdCount,
+      updatedCount,
+    };
+  },
+
+  /**
+   * Correct an individual student's attendance record with mandatory audit reasoning.
+   */
+  updateAttendanceRecord: async (
+    lecturerId: string,
+    offeringId: string,
+    sessionId: string,
+    recordId: string,
+    input: UpdateAttendanceRecordInput
+  ) => {
+    await assessmentService.verifyLecturerAssignment(lecturerId, offeringId);
+
+    const [record] = await db
+      .select()
+      .from(attendanceRecordsTable)
+      .where(
+        and(
+          eq(attendanceRecordsTable.id, recordId as any),
+          eq(attendanceRecordsTable.sessionId, sessionId as any)
+        )
+      );
+
+    if (!record) {
+      throw new Error('Attendance record not found for this session.');
+    }
+
+    const previousStatus = record.status;
+    const newStatus = input.status;
+
+    // Update attendance record
+    const [updated] = await db
+      .update(attendanceRecordsTable)
+      .set({
+        status: newStatus,
+        remarks: input.remarks !== undefined ? input.remarks : record.remarks,
+        updatedBy: lecturerId as any,
+        updatedAt: new Date(),
+      })
+      .where(eq(attendanceRecordsTable.id, recordId as any))
+      .returning();
+
+    // Log immutable correction in attendance_audit_logs
+    const [auditLog] = await db
+      .insert(attendanceAuditLogsTable)
+      .values({
+        recordId: record.id,
+        sessionId: sessionId as any,
+        studentId: record.studentId,
+        previousStatus,
+        newStatus,
+        reason: input.reason,
+        performedBy: lecturerId as any,
+      })
+      .returning();
+
+    logger.info(
+      `[ATTENDANCE_CORRECTION] Record ${recordId} in session ${sessionId} updated from ${previousStatus} to ${newStatus} by lecturer ${lecturerId}. Reason: ${input.reason}`
+    );
+
+    return {
+      record: updated,
+      auditLog,
+    };
+  },
+
+  /**
+   * Get offering-level attendance summary (total sessions, enrolled students, average rate, per-student summary).
+   */
+  getOfferingAttendanceSummary: async (
+    lecturerId: string,
+    offeringId: string
+  ) => {
+    await assessmentService.verifyLecturerAssignment(lecturerId, offeringId);
+
+    const [offering] = await db
+      .select({
+        id: courseOfferingsTable.id,
+        code: coursesTable.code,
+        title: coursesTable.title,
+        level: courseOfferingsTable.level,
+        academicSession: courseOfferingsTable.academicSession,
+        semester: courseOfferingsTable.semester,
+        departmentName: departmentsTable.name,
+      })
+      .from(courseOfferingsTable)
+      .innerJoin(coursesTable, eq(courseOfferingsTable.courseId, coursesTable.id))
+      .leftJoin(departmentsTable, eq(coursesTable.departmentId, departmentsTable.id))
+      .where(eq(courseOfferingsTable.id, offeringId as any));
+
+    if (!offering) {
+      throw new Error('Course offering not found.');
+    }
+
+    // Total non-cancelled sessions
+    const sessions = await db
+      .select({
+        id: attendanceSessionsTable.id,
+        title: attendanceSessionsTable.title,
+        sessionDate: attendanceSessionsTable.sessionDate,
+        status: attendanceSessionsTable.status,
+      })
+      .from(attendanceSessionsTable)
+      .where(
+        and(
+          eq(attendanceSessionsTable.offeringId, offeringId as any),
+          sql`${attendanceSessionsTable.status} != ${ATTENDANCE_SESSION_STATUSES.CANCELLED}`
+        )
+      )
+      .orderBy(asc(attendanceSessionsTable.sessionDate));
+
+    const totalSessions = sessions.length;
+
+    // Enrolled students
+    const enrolledStudents = await db
+      .select({
+        studentId: usersTable.id,
+        fullName: usersTable.fullName,
+        username: usersTable.username,
+        email: usersTable.email,
+        level: usersTable.level,
+      })
+      .from(studentEnrollmentsTable)
+      .innerJoin(usersTable, eq(studentEnrollmentsTable.studentId, usersTable.id))
+      .where(
+        and(
+          eq(studentEnrollmentsTable.offeringId, offeringId as any),
+          eq(studentEnrollmentsTable.status, 'ENROLLED')
+        )
+      )
+      .orderBy(asc(usersTable.fullName));
+
+    // Get attendance records for all active sessions in this offering
+    const activeSessionIds = sessions.map((s) => s.id);
+    let studentStatsMap: Record<
+      string,
+      { present: number; absent: number; late: number; excused: number; attended: number }
+    > = {};
+
+    for (const st of enrolledStudents) {
+      studentStatsMap[st.studentId] = { present: 0, absent: 0, late: 0, excused: 0, attended: 0 };
+    }
+
+    if (activeSessionIds.length > 0) {
+      const records = await db
+        .select({
+          studentId: attendanceRecordsTable.studentId,
+          status: attendanceRecordsTable.status,
+          count: sql<number>`cast(count(*) as integer)`,
+        })
+        .from(attendanceRecordsTable)
+        .where(inArray(attendanceRecordsTable.sessionId, activeSessionIds as any))
+        .groupBy(attendanceRecordsTable.studentId, attendanceRecordsTable.status);
+
+      for (const r of records) {
+        if (!studentStatsMap[r.studentId]) {
+          studentStatsMap[r.studentId] = { present: 0, absent: 0, late: 0, excused: 0, attended: 0 };
+        }
+        const stStat = studentStatsMap[r.studentId]!;
+        if (r.status === ATTENDANCE_RECORD_STATUSES.PRESENT) stStat.present += r.count;
+        if (r.status === ATTENDANCE_RECORD_STATUSES.ABSENT) stStat.absent += r.count;
+        if (r.status === ATTENDANCE_RECORD_STATUSES.LATE) stStat.late += r.count;
+        if (r.status === ATTENDANCE_RECORD_STATUSES.EXCUSED) stStat.excused += r.count;
+        if (r.status === ATTENDANCE_RECORD_STATUSES.PRESENT || r.status === ATTENDANCE_RECORD_STATUSES.LATE) {
+          stStat.attended += r.count;
+        }
+      }
+    }
+
+    const studentSummaries = enrolledStudents.map((st) => {
+      const stats = studentStatsMap[st.studentId] || { present: 0, absent: 0, late: 0, excused: 0, attended: 0 };
+      const percentage = totalSessions > 0 ? Math.round((stats.attended / totalSessions) * 100 * 10) / 10 : 0;
+      return {
+        ...st,
+        presentCount: stats.present,
+        absentCount: stats.absent,
+        lateCount: stats.late,
+        excusedCount: stats.excused,
+        attendedCount: stats.attended,
+        totalSessions,
+        attendancePercentage: percentage,
+      };
+    });
+
+    // Overall course metrics
+    const totalPossibleAttendances = totalSessions * enrolledStudents.length;
+    const totalAttended = studentSummaries.reduce((acc, curr) => acc + curr.attendedCount, 0);
+    const overallAttendanceRate =
+      totalPossibleAttendances > 0 ? Math.round((totalAttended / totalPossibleAttendances) * 100 * 10) / 10 : 0;
+
+    return {
+      offering,
+      metrics: {
+        totalSessions,
+        enrolledStudentsCount: enrolledStudents.length,
+        overallAttendanceRate,
+        averageAttendedPerSession:
+          totalSessions > 0 ? Math.round((totalAttended / totalSessions) * 10) / 10 : 0,
+      },
+      students: studentSummaries,
+    };
+  },
+
+  /**
+   * Get historical attendance for an individual student in an offering.
+   */
+  getStudentAttendanceHistory: async (
+    lecturerId: string,
+    offeringId: string,
+    studentId: string
+  ) => {
+    await assessmentService.verifyLecturerAssignment(lecturerId, offeringId);
+
+    const [student] = await db
+      .select({
+        id: usersTable.id,
+        fullName: usersTable.fullName,
+        username: usersTable.username,
+        email: usersTable.email,
+        level: usersTable.level,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, studentId as any));
+
+    if (!student) {
+      throw new Error('Student not found.');
+    }
+
+    const records = await db
+      .select({
+        recordId: attendanceRecordsTable.id,
+        sessionId: attendanceSessionsTable.id,
+        sessionTitle: attendanceSessionsTable.title,
+        sessionType: attendanceSessionsTable.sessionType,
+        sessionDate: attendanceSessionsTable.sessionDate,
+        startTime: attendanceSessionsTable.startTime,
+        endTime: attendanceSessionsTable.endTime,
+        status: attendanceRecordsTable.status,
+        remarks: attendanceRecordsTable.remarks,
+        markedAt: attendanceRecordsTable.markedAt,
+        updatedAt: attendanceRecordsTable.updatedAt,
+      })
+      .from(attendanceRecordsTable)
+      .innerJoin(attendanceSessionsTable, eq(attendanceRecordsTable.sessionId, attendanceSessionsTable.id))
+      .where(
+        and(
+          eq(attendanceSessionsTable.offeringId, offeringId as any),
+          eq(attendanceRecordsTable.studentId, studentId as any)
+        )
+      )
+      .orderBy(desc(attendanceSessionsTable.sessionDate));
+
+    // Audit corrections for this student
+    const auditLogs = await db
+      .select({
+        id: attendanceAuditLogsTable.id,
+        recordId: attendanceAuditLogsTable.recordId,
+        sessionId: attendanceAuditLogsTable.sessionId,
+        previousStatus: attendanceAuditLogsTable.previousStatus,
+        newStatus: attendanceAuditLogsTable.newStatus,
+        reason: attendanceAuditLogsTable.reason,
+        performedBy: usersTable.fullName,
+        createdAt: attendanceAuditLogsTable.createdAt,
+      })
+      .from(attendanceAuditLogsTable)
+      .innerJoin(usersTable, eq(attendanceAuditLogsTable.performedBy, usersTable.id))
+      .where(
+        and(
+          eq(attendanceAuditLogsTable.studentId, studentId as any),
+          inArray(attendanceAuditLogsTable.sessionId, records.map((r) => r.sessionId) as any)
+        )
+      )
+      .orderBy(desc(attendanceAuditLogsTable.createdAt));
+
+    return {
+      student,
+      records,
+      auditLogs,
+    };
+  },
+
+  /**
+   * Student self-service: View own attendance records for an enrolled offering.
+   */
+  getStudentSelfAttendance: async (
+    studentId: string,
+    offeringId: string
+  ) => {
+    // 1. Verify student is enrolled in this offering
+    const [enrollment] = await db
+      .select({ id: studentEnrollmentsTable.id })
+      .from(studentEnrollmentsTable)
+      .where(
+        and(
+          eq(studentEnrollmentsTable.studentId, studentId as any),
+          eq(studentEnrollmentsTable.offeringId, offeringId as any),
+          eq(studentEnrollmentsTable.status, 'ENROLLED')
+        )
+      );
+
+    if (!enrollment) {
+      throw new Error('Forbidden. You are not actively enrolled in this course offering.');
+    }
+
+    // 2. Fetch offering info
+    const [offering] = await db
+      .select({
+        id: courseOfferingsTable.id,
+        code: coursesTable.code,
+        title: coursesTable.title,
+        academicSession: courseOfferingsTable.academicSession,
+        semester: courseOfferingsTable.semester,
+        level: courseOfferingsTable.level,
+      })
+      .from(courseOfferingsTable)
+      .innerJoin(coursesTable, eq(courseOfferingsTable.courseId, coursesTable.id))
+      .where(eq(courseOfferingsTable.id, offeringId as any));
+
+    // 3. Fetch all active sessions for this offering
+    const sessions = await db
+      .select({
+        id: attendanceSessionsTable.id,
+        title: attendanceSessionsTable.title,
+        sessionType: attendanceSessionsTable.sessionType,
+        sessionDate: attendanceSessionsTable.sessionDate,
+        startTime: attendanceSessionsTable.startTime,
+        endTime: attendanceSessionsTable.endTime,
+        status: attendanceSessionsTable.status,
+      })
+      .from(attendanceSessionsTable)
+      .where(
+        and(
+          eq(attendanceSessionsTable.offeringId, offeringId as any),
+          sql`${attendanceSessionsTable.status} != ${ATTENDANCE_SESSION_STATUSES.CANCELLED}`
+        )
+      )
+      .orderBy(desc(attendanceSessionsTable.sessionDate));
+
+    // 4. Fetch student's attendance records
+    const records = await db
+      .select({
+        sessionId: attendanceRecordsTable.sessionId,
+        status: attendanceRecordsTable.status,
+        remarks: attendanceRecordsTable.remarks,
+        markedAt: attendanceRecordsTable.markedAt,
+      })
+      .from(attendanceRecordsTable)
+      .where(
+        and(
+          eq(attendanceRecordsTable.studentId, studentId as any),
+          inArray(attendanceRecordsTable.sessionId, sessions.map((s) => s.id) as any)
+        )
+      );
+
+    const recordsMap = new Map<string, typeof records[0]>();
+    for (const r of records) {
+      recordsMap.set(r.sessionId, r);
+    }
+
+    const sessionHistory = sessions.map((s) => {
+      const record = recordsMap.get(s.id);
+      return {
+        sessionId: s.id,
+        title: s.title,
+        sessionType: s.sessionType,
+        sessionDate: s.sessionDate,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        status: record?.status || ATTENDANCE_RECORD_STATUSES.ABSENT,
+        remarks: record?.remarks || null,
+        markedAt: record?.markedAt || null,
+      };
+    });
+
+    const totalSessions = sessions.length;
+    const presentCount = sessionHistory.filter((s) => s.status === ATTENDANCE_RECORD_STATUSES.PRESENT).length;
+    const lateCount = sessionHistory.filter((s) => s.status === ATTENDANCE_RECORD_STATUSES.LATE).length;
+    const excusedCount = sessionHistory.filter((s) => s.status === ATTENDANCE_RECORD_STATUSES.EXCUSED).length;
+    const absentCount = sessionHistory.filter((s) => s.status === ATTENDANCE_RECORD_STATUSES.ABSENT).length;
+    const attendedCount = presentCount + lateCount;
+    const attendancePercentage = totalSessions > 0 ? Math.round((attendedCount / totalSessions) * 100 * 10) / 10 : 0;
+
+    return {
+      offering,
+      summary: {
+        totalSessions,
+        attendedCount,
+        presentCount,
+        lateCount,
+        excusedCount,
+        absentCount,
+        attendancePercentage,
+      },
+      history: sessionHistory,
+    };
+  },
+};

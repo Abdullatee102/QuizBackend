@@ -5,6 +5,9 @@ import {
   getLecturerDetailsHandler,
   assignCourseHandler,
   revokeCourseAssignmentHandler,
+  updateLecturerProfileHandler,
+  listFacultiesHandler,
+  listDepartmentsHandler,
 } from '../../controllers/admin/lecturers.controller.js';
 import { protectAdmin, requirePermission } from '../../middlewares/adminAuth.middleware.js';
 import { validate } from '../../middlewares/validate.middleware.js';
@@ -12,6 +15,7 @@ import { PERMISSIONS } from '../../config/permissions.js';
 import {
   provisionLecturerSchema,
   assignCourseSchema,
+  updateLecturerProfileSchema,
 } from '../../schemas/lecturer.schemas.js';
 
 const router = Router();
@@ -33,9 +37,28 @@ router.get(
 );
 
 router.get(
+  '/faculties',
+  requirePermission(PERMISSIONS.LECTURERS_READ),
+  listFacultiesHandler
+);
+
+router.get(
+  '/departments',
+  requirePermission(PERMISSIONS.LECTURERS_READ),
+  listDepartmentsHandler
+);
+
+router.get(
   '/:lecturerId',
   requirePermission(PERMISSIONS.LECTURERS_READ),
   getLecturerDetailsHandler
+);
+
+router.patch(
+  '/:lecturerId',
+  requirePermission(PERMISSIONS.LECTURERS_UPDATE),
+  validate(updateLecturerProfileSchema),
+  updateLecturerProfileHandler
 );
 
 router.post(

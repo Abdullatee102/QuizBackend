@@ -579,6 +579,187 @@ async function runMigration() {
     `);
     console.log('[MIGRATION] Assessment Grades, Question Grades & Grading Audit Logs tables verified (BB-07F.6)');
 
+    // 22. Gradebook, Moderation & Result Publication (BB-07F.7)
+    await client.query(`
+      -- Assessments results publication lifecycle
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_publication_status text NOT NULL DEFAULT 'GRADING_IN_PROGRESS';
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_submitted_at timestamp with time zone;
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_submitted_by uuid REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_approved_at timestamp with time zone;
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_approved_by uuid REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_rejected_at timestamp with time zone;
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_rejected_by uuid REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_rejection_reason text;
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_published_at timestamp with time zone;
+      ALTER TABLE assessments ADD COLUMN IF NOT EXISTS results_published_by uuid REFERENCES users(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS assessments_results_status_idx ON assessments (offering_id, results_publication_status);
+
+      -- Assessment Grades moderation flags
+      ALTER TABLE assessment_grades ADD COLUMN IF NOT EXISTS is_moderated boolean NOT NULL DEFAULT false;
+      ALTER TABLE assessment_grades ADD COLUMN IF NOT EXISTS moderated_by uuid REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE assessment_grades ADD COLUMN IF NOT EXISTS moderated_at timestamp with time zone;
+      ALTER TABLE assessment_grades ADD COLUMN IF NOT EXISTS moderation_notes text;
+      ALTER TABLE assessment_grades ADD COLUMN IF NOT EXISTS is_flagged_for_review boolean NOT NULL DEFAULT false;
+      ALTER TABLE assessment_grades ADD COLUMN IF NOT EXISTS flag_reason text;
+
+      -- Assessment Question Grades moderation flags
+      ALTER TABLE assessment_question_grades ADD COLUMN IF NOT EXISTS is_moderated boolean NOT NULL DEFAULT false;
+      ALTER TABLE assessment_question_grades ADD COLUMN IF NOT EXISTS moderated_by uuid REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE assessment_question_grades ADD COLUMN IF NOT EXISTS moderated_at timestamp with time zone;
+      ALTER TABLE assessment_question_grades ADD COLUMN IF NOT EXISTS moderation_notes text;
+      ALTER TABLE assessment_question_grades ADD COLUMN IF NOT EXISTS is_flagged_for_review boolean NOT NULL DEFAULT false;
+      ALTER TABLE assessment_question_grades ADD COLUMN IF NOT EXISTS flag_reason text;
+
+      -- Assessment Grading Audit Logs enhancements
+      ALTER TABLE assessment_grading_audit_logs ADD COLUMN IF NOT EXISTS assessment_id uuid REFERENCES assessments(id) ON DELETE CASCADE;
+      ALTER TABLE assessment_grading_audit_logs ALTER COLUMN attempt_id DROP NOT NULL;
+      ALTER TABLE assessment_grading_audit_logs ALTER COLUMN new_score DROP NOT NULL;
+      ALTER TABLE assessment_grading_audit_logs ALTER COLUMN new_status DROP NOT NULL;
+      CREATE INDEX IF NOT EXISTS assessment_grading_audit_assessment_idx ON assessment_grading_audit_logs (assessment_id);
+    `);
+    console.log('[MIGRATION] Results Publication Lifecycle & Moderation enhancements verified (BB-07F.7)');
+
+    // 23. Lecturer Attendance Management (BB-07G)
+    await client.query(`
+      -- Attendance Sessions
+      CREATE TABLE IF NOT EXISTS attendance_sessions (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        offering_id uuid NOT NULL REFERENCES course_offerings(id) ON DELETE CASCADE,
+        created_by uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title text NOT NULL,
+        session_type text NOT NULL DEFAULT 'LECTURE',
+        session_date timestamp with time zone NOT NULL,
+        start_time text,
+        end_time text,
+        status text NOT NULL DEFAULT 'OPEN',
+        notes text,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS attendance_sessions_offering_idx ON attendance_sessions (offering_id);
+      CREATE INDEX IF NOT EXISTS attendance_sessions_date_idx ON attendance_sessions (session_date);
+      CREATE INDEX IF NOT EXISTS attendance_sessions_status_idx ON attendance_sessions (status);
+
+      -- Attendance Records
+      CREATE TABLE IF NOT EXISTS attendance_records (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id uuid NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+        student_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status text NOT NULL DEFAULT 'PRESENT',
+        remarks text,
+        marked_by uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        marked_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        CONSTRAINT attendance_records_session_student_unique UNIQUE (session_id, student_id)
+      );
+      CREATE INDEX IF NOT EXISTS attendance_records_session_idx ON attendance_records (session_id);
+      CREATE INDEX IF NOT EXISTS attendance_records_student_idx ON attendance_records (student_id);
+      CREATE INDEX IF NOT EXISTS attendance_records_status_idx ON attendance_records (status);
+
+      -- Attendance Audit Logs
+      CREATE TABLE IF NOT EXISTS attendance_audit_logs (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        record_id uuid NOT NULL REFERENCES attendance_records(id) ON DELETE CASCADE,
+        session_id uuid NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+        student_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        previous_status text NOT NULL,
+        new_status text NOT NULL,
+        reason text NOT NULL,
+        performed_by uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS attendance_audit_logs_record_idx ON attendance_audit_logs (record_id);
+      CREATE INDEX IF NOT EXISTS attendance_audit_logs_session_idx ON attendance_audit_logs (session_id);
+      CREATE INDEX IF NOT EXISTS attendance_audit_logs_student_idx ON attendance_audit_logs (student_id);
+    `);
+    console.log('[MIGRATION] Attendance Sessions, Records & Audit Logs tables verified (BB-07G)');
+
+    // 24. Course Materials & Learning Resources (BB-07H)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS course_materials (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        offering_id uuid NOT NULL REFERENCES course_offerings(id) ON DELETE CASCADE,
+        uploaded_by uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title text NOT NULL,
+        description text,
+        category text NOT NULL DEFAULT 'LECTURE_NOTE',
+        status text NOT NULL DEFAULT 'PUBLISHED',
+        original_file_name text NOT NULL,
+        file_size_bytes integer NOT NULL,
+        mime_type text NOT NULL,
+        storage_key text NOT NULL,
+        download_count integer NOT NULL DEFAULT 0,
+        published_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS course_materials_offering_idx ON course_materials (offering_id);
+      CREATE INDEX IF NOT EXISTS course_materials_status_idx ON course_materials (status);
+      CREATE INDEX IF NOT EXISTS course_materials_category_idx ON course_materials (category);
+    `);
+    console.log('[MIGRATION] Course Materials table verified (BB-07H)');
+
+    // 25. Opportunity Hub & Campus Partnerships (BB-06)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS opportunities (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        slug text NOT NULL UNIQUE,
+        category text NOT NULL,
+        title text NOT NULL,
+        organization text NOT NULL,
+        short_description text NOT NULL,
+        full_description text NOT NULL,
+        requirements text,
+        benefits text,
+        application_url text,
+        contact_email text,
+        contact_phone text,
+        logo_url text,
+        banner_url text,
+        deadline timestamp with time zone,
+        status text NOT NULL DEFAULT 'DRAFT',
+        verification_status text NOT NULL DEFAULT 'UNVERIFIED',
+        is_featured boolean NOT NULL DEFAULT false,
+        target_audience jsonb NOT NULL DEFAULT '{"isAll": true}'::jsonb,
+        clicks_count integer NOT NULL DEFAULT 0,
+        created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        published_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS opportunities_category_idx ON opportunities (category);
+      CREATE INDEX IF NOT EXISTS opportunities_status_idx ON opportunities (status);
+      CREATE INDEX IF NOT EXISTS opportunities_published_at_idx ON opportunities (published_at);
+      CREATE INDEX IF NOT EXISTS opportunities_deadline_idx ON opportunities (deadline);
+      CREATE INDEX IF NOT EXISTS opportunities_is_featured_idx ON opportunities (is_featured);
+
+      CREATE TABLE IF NOT EXISTS opportunity_subscriptions (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        category text NOT NULL,
+        is_enabled boolean NOT NULL DEFAULT true,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        CONSTRAINT opportunity_sub_user_category_unique UNIQUE (user_id, category)
+      );
+      CREATE INDEX IF NOT EXISTS opportunity_sub_user_idx ON opportunity_subscriptions (user_id);
+
+      CREATE TABLE IF NOT EXISTS opportunity_bookmarks (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        opportunity_id uuid NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        CONSTRAINT opportunity_bookmark_user_opp_unique UNIQUE (user_id, opportunity_id)
+      );
+      CREATE INDEX IF NOT EXISTS opportunity_bookmark_user_idx ON opportunity_bookmarks (user_id);
+    `);
+    console.log('[MIGRATION] Opportunity Hub tables verified (BB-06)');
+
+
+
+
     console.log('[MIGRATION] All database schema migrations successfully completed!');
   } catch (error) {
     console.error('[MIGRATION ERROR]', error);

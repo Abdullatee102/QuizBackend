@@ -11,6 +11,7 @@ import feedbackRoutes from './feedback.routes.js';
 import lecturersRoutes from './lecturers.routes.js';
 import offeringsRoutes from './offerings.routes.js';
 import assessmentsRoutes from './assessments.routes.js';
+import opportunitiesRoutes from './opportunities.routes.js';
 
 const router = Router();
 
@@ -26,6 +27,7 @@ router.use('/feedback', feedbackRoutes);
 router.use('/lecturers', lecturersRoutes);
 router.use('/offerings', offeringsRoutes);
 router.use('/assessments', assessmentsRoutes);
+router.use('/opportunities', opportunitiesRoutes);
 
 export default router;
 

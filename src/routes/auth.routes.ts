@@ -49,7 +49,13 @@ import {
   saveAnswersHandler,
   heartbeatHandler,
   submitAttemptHandler,
+  getStudentPublishedResultHandler,
 } from '../controllers/student/assessmentAttempts.controller.js';
+import { getStudentSelfAttendanceHandler } from '../controllers/student/attendance.controller.js';
+import {
+  listStudentMaterialsHandler,
+  downloadStudentMaterialHandler,
+} from '../controllers/student/materials.controller.js';
 import {
   saveAnswersSchema,
   submitAttemptSchema,
@@ -353,6 +359,31 @@ router.post(
   validate(submitAttemptSchema),
   submitAttemptHandler
 );
+router.get(
+  '/assessments/:assessmentId/results',
+  protect,
+  getStudentPublishedResultHandler
+);
+
+// Student Attendance (BB-07G)
+router.get(
+  '/offerings/:offeringId/attendance',
+  protect,
+  getStudentSelfAttendanceHandler
+);
+
+// Course Materials (BB-07H)
+router.get(
+  '/offerings/:offeringId/materials',
+  protect,
+  listStudentMaterialsHandler
+);
+router.get(
+  '/offerings/:offeringId/materials/:materialId/download',
+  protect,
+  downloadStudentMaterialHandler
+);
+
 
 // =====================================================
 // LEGACY BACKWARD COMPATIBILITY

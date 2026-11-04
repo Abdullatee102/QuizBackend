@@ -363,7 +363,7 @@ export const lecturerService = {
 
     return {
       ...record,
-      offeringId: offeringRec?.offeringId || record.assignmentId,
+      offeringId: offeringRec?.offeringId || null,
       metrics: {
         totalQuestions: counts?.totalQuestions || 0,
         cbtQuestions: counts?.cbtQuestions || 0,

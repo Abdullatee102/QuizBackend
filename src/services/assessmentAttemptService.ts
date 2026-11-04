@@ -148,6 +148,7 @@ export const assessmentAttemptService = {
         isRandomized: assessmentsTable.isRandomized,
         allowLateSubmission: assessmentsTable.allowLateSubmission,
         lateSubmissionDeadline: assessmentsTable.lateSubmissionDeadline,
+        resultsPublicationStatus: assessmentsTable.resultsPublicationStatus,
       })
       .from(assessmentsTable)
       .innerJoin(courseOfferingsTable, eq(assessmentsTable.offeringId, courseOfferingsTable.id))
@@ -293,6 +294,7 @@ export const assessmentAttemptService = {
         isRandomized: assessmentsTable.isRandomized,
         allowLateSubmission: assessmentsTable.allowLateSubmission,
         lateSubmissionDeadline: assessmentsTable.lateSubmissionDeadline,
+        resultsPublicationStatus: assessmentsTable.resultsPublicationStatus,
       })
       .from(assessmentsTable)
       .innerJoin(courseOfferingsTable, eq(assessmentsTable.offeringId, courseOfferingsTable.id))
@@ -1089,6 +1091,7 @@ export const assessmentAttemptService = {
         maxAttempts: assessmentsTable.maxAttempts,
         allowLateSubmission: assessmentsTable.allowLateSubmission,
         lateSubmissionDeadline: assessmentsTable.lateSubmissionDeadline,
+        resultsPublicationStatus: assessmentsTable.resultsPublicationStatus,
       })
       .from(assessmentsTable)
       .innerJoin(courseOfferingsTable, eq(assessmentsTable.offeringId, courseOfferingsTable.id))

@@ -10,7 +10,7 @@ export const createAssessmentSchema = z
           .trim()
           .min(3, 'Title must be at least 3 characters')
           .max(255, 'Title cannot exceed 255 characters'),
-        description: z.string().trim().max(2000).optional(),
+        description: z.string().trim().max(2000).optional().nullable(),
         type: z
           .enum([
             ASSESSMENT_TYPES.CBT,
@@ -200,4 +200,46 @@ export const adminSuspendAssessmentSchema = z.object({
       .min(5, 'Reason must be at least 5 characters')
       .max(1000, 'Reason cannot exceed 1000 characters'),
   }),
+});
+
+// =====================================================
+// GRADEBOOK, MODERATION & RESULT PUBLICATION (BB-07F.7)
+// =====================================================
+
+export const submitResultsApprovalSchema = z.object({
+  body: z.object({
+    overrideIncompleteReason: z.string().trim().min(5, 'Override reason must be at least 5 characters').optional(),
+  }).optional(),
+});
+
+export const moderateGradeSchema = z.object({
+  body: z.object({
+    newScore: z.number().min(0, 'Score cannot be negative').optional(),
+    isFlaggedForReview: z.boolean().optional(),
+    flagReason: z.string().trim().optional(),
+    moderationNotes: z.string().trim().optional(),
+    reason: z.string().trim().min(3, 'A clear reason for moderation is mandatory'),
+  }),
+});
+
+export const approveResultsSchema = z.object({
+  body: z.object({
+    notes: z.string().trim().max(1000).optional(),
+  }).optional(),
+});
+
+export const rejectResultsSchema = z.object({
+  body: z.object({
+    reason: z
+      .string()
+      .trim()
+      .min(5, 'Rejection reason must be at least 5 characters')
+      .max(1000, 'Rejection reason cannot exceed 1000 characters'),
+  }),
+});
+
+export const publishResultsSchema = z.object({
+  body: z.object({
+    scheduledReleaseAt: z.string().datetime().optional(),
+  }).optional(),
 });

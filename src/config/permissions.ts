@@ -83,6 +83,13 @@ export const PERMISSIONS = {
   // Academic Assessments Oversight & Overrides (BB-07F.4)
   ASSESSMENTS_READ: 'assessments.read',
   ASSESSMENTS_OVERRIDE: 'assessments.override',
+
+  // Opportunity Hub & Campus Partnerships (BB-06)
+  OPPORTUNITIES_READ: 'opportunities.read',
+  OPPORTUNITIES_CREATE: 'opportunities.create',
+  OPPORTUNITIES_UPDATE: 'opportunities.update',
+  OPPORTUNITIES_DELETE: 'opportunities.delete',
+  OPPORTUNITIES_PUBLISH: 'opportunities.publish',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS] | string;
@@ -122,6 +129,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'assessments.*',
     PERMISSIONS.ASSESSMENTS_READ,
     PERMISSIONS.ASSESSMENTS_OVERRIDE,
+    'opportunities.*',
+    PERMISSIONS.OPPORTUNITIES_READ,
+    PERMISSIONS.OPPORTUNITIES_CREATE,
+    PERMISSIONS.OPPORTUNITIES_UPDATE,
+    PERMISSIONS.OPPORTUNITIES_DELETE,
+    PERMISSIONS.OPPORTUNITIES_PUBLISH,
   ],
 
   [USER_ROLES.SUPPORT_AGENT]: [

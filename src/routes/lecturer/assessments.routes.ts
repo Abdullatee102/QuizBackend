@@ -21,6 +21,11 @@ import {
   gradeTheoryQuestionsHandler,
   getAiTheorySuggestionHandler,
 } from '../../controllers/lecturer/assessmentGrading.controller.js';
+import {
+  getAssessmentGradebookHandler,
+  moderateGradeHandler,
+  submitResultsApprovalHandler,
+} from '../../controllers/lecturer/gradebook.controller.js';
 import { protectLecturer } from '../../middlewares/lecturerAuth.middleware.js';
 import { validate } from '../../middlewares/validate.middleware.js';
 import {
@@ -30,6 +35,8 @@ import {
   rescheduleAssessmentSchema,
   extendAssessmentSchema,
   cancelAssessmentSchema,
+  submitResultsApprovalSchema,
+  moderateGradeSchema,
 } from '../../schemas/assessment.schemas.js';
 import { forceSubmitSchema, gradeTheorySchema } from '../../schemas/assessmentAttempt.schemas.js';
 
@@ -70,6 +77,19 @@ router.post(
 router.post(
   '/:assessmentId/attempts/:attemptId/questions/:assessmentQuestionId/ai-assist',
   getAiTheorySuggestionHandler
+);
+
+// Gradebook, Moderation & Result Approval (BB-07F.7)
+router.get('/:assessmentId/gradebook', getAssessmentGradebookHandler);
+router.post(
+  '/:assessmentId/submit-for-approval',
+  validate(submitResultsApprovalSchema),
+  submitResultsApprovalHandler
+);
+router.post(
+  '/:assessmentId/grades/:gradeId/moderate',
+  validate(moderateGradeSchema),
+  moderateGradeHandler
 );
 
 export default router;

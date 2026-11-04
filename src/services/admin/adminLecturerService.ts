@@ -58,6 +58,9 @@ export const adminLecturerService = {
     if (data.departmentId) {
       const [dept] = await db.select().from(departmentsTable).where(eq(departmentsTable.id, data.departmentId as any));
       if (!dept) throw new Error('Referenced department not found.');
+      if (data.facultyId && dept.facultyId !== data.facultyId) {
+        throw new Error('Department does not belong to the selected faculty.');
+      }
     }
 
     const [newLecturer] = await db
@@ -577,5 +580,86 @@ export const adminLecturerService = {
     });
 
     return revoked;
+  },
+
+  /**
+   * Updates a lecturer profile including faculty and department affiliation.
+   */
+  updateLecturerProfile: async (
+    lecturerId: string,
+    data: {
+      fullName?: string;
+      phoneNumber?: string | null;
+      facultyId?: string | null;
+      departmentId?: string | null;
+      status?: string;
+    },
+    adminUserId: string,
+    reqMeta?: { ipAddress?: string | null; userAgent?: string | null }
+  ) => {
+    const [existing] = await db
+      .select()
+      .from(usersTable)
+      .where(and(eq(usersTable.id, lecturerId as any), eq(usersTable.role, USER_ROLES.LECTURER)));
+
+    if (!existing) {
+      throw new Error('Lecturer not found.');
+    }
+
+    const updates: Record<string, any> = {
+      updatedAt: new Date(),
+    };
+
+    if (data.fullName !== undefined) updates.fullName = data.fullName.trim();
+    if (data.phoneNumber !== undefined) updates.phoneNumber = data.phoneNumber ? data.phoneNumber.trim() : null;
+    if (data.status !== undefined) updates.status = data.status;
+
+    const targetFacultyId = data.facultyId !== undefined ? data.facultyId : existing.facultyId;
+
+    if (data.facultyId !== undefined) {
+      if (data.facultyId) {
+        const [fac] = await db.select().from(facultiesTable).where(eq(facultiesTable.id, data.facultyId as any));
+        if (!fac) throw new Error('Referenced faculty not found.');
+      }
+      updates.facultyId = data.facultyId ? (data.facultyId as any) : null;
+    }
+
+    if (data.departmentId !== undefined) {
+      if (data.departmentId) {
+        const [dept] = await db.select().from(departmentsTable).where(eq(departmentsTable.id, data.departmentId as any));
+        if (!dept) throw new Error('Referenced department not found.');
+        if (targetFacultyId && dept.facultyId !== targetFacultyId) {
+          throw new Error('Department does not belong to the selected faculty.');
+        }
+      }
+      updates.departmentId = data.departmentId ? (data.departmentId as any) : null;
+    }
+
+    const [updated] = await db
+      .update(usersTable)
+      .set(updates)
+      .where(eq(usersTable.id, lecturerId as any))
+      .returning({
+        id: usersTable.id,
+        fullName: usersTable.fullName,
+        email: usersTable.email,
+        username: usersTable.username,
+        phoneNumber: usersTable.phoneNumber,
+        facultyId: usersTable.facultyId,
+        departmentId: usersTable.departmentId,
+        status: usersTable.status,
+      });
+
+    await auditService.logAdminAction({
+      adminUserId,
+      action: 'UPDATE_LECTURER_PROFILE',
+      resourceType: 'users',
+      resourceId: lecturerId,
+      metadata: { updates },
+      ipAddress: reqMeta?.ipAddress || null,
+      userAgent: reqMeta?.userAgent || null,
+    });
+
+    return updated;
   },
 };

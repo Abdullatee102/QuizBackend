@@ -1504,6 +1504,17 @@ export const RESULT_RELEASE_POLICY = {
 export type ResultReleasePolicy =
   (typeof RESULT_RELEASE_POLICY)[keyof typeof RESULT_RELEASE_POLICY];
 
+export const RESULTS_PUBLICATION_STATUS = {
+  GRADING_IN_PROGRESS: 'GRADING_IN_PROGRESS',
+  SUBMITTED_FOR_APPROVAL: 'SUBMITTED_FOR_APPROVAL',
+  APPROVED: 'APPROVED',
+  PUBLISHED: 'PUBLISHED',
+  REJECTED: 'REJECTED',
+} as const;
+
+export type ResultsPublicationStatus =
+  (typeof RESULTS_PUBLICATION_STATUS)[keyof typeof RESULTS_PUBLICATION_STATUS];
+
 export interface QuestionSnapshot {
   type: string;
   question: string;
@@ -1588,6 +1599,40 @@ export const assessmentsTable = pgTable(
 
     resultsReleasedAt: timestamp('results_released_at', { withTimezone: true }),
 
+    resultsPublicationStatus: text('results_publication_status')
+      .default('GRADING_IN_PROGRESS')
+      .notNull(),
+
+    resultsSubmittedAt: timestamp('results_submitted_at', { withTimezone: true }),
+
+    resultsSubmittedBy: uuid('results_submitted_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    resultsApprovedAt: timestamp('results_approved_at', { withTimezone: true }),
+
+    resultsApprovedBy: uuid('results_approved_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    resultsRejectedAt: timestamp('results_rejected_at', { withTimezone: true }),
+
+    resultsRejectedBy: uuid('results_rejected_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    resultsRejectionReason: text('results_rejection_reason'),
+
+    resultsPublishedAt: timestamp('results_published_at', { withTimezone: true }),
+
+    resultsPublishedBy: uuid('results_published_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
     publishedAt: timestamp('published_at', { withTimezone: true }),
 
     publishedBy: uuid('published_by')
@@ -1613,6 +1658,7 @@ export const assessmentsTable = pgTable(
     creatorLecturerIdx: index('assessments_creator_lecturer_idx').on(table.creatorLecturerId),
     statusIdx: index('assessments_status_idx').on(table.status),
     scheduleIdx: index('assessments_schedule_idx').on(table.startTime, table.endTime),
+    resultsStatusIdx: index('assessments_results_status_idx').on(table.offeringId, table.resultsPublicationStatus),
   })
 );
 
@@ -1972,6 +2018,25 @@ export const assessmentGradesTable = pgTable(
         onDelete: 'set null',
       }),
 
+    isModerated: boolean('is_moderated')
+      .default(false)
+      .notNull(),
+
+    moderatedBy: uuid('moderated_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    moderatedAt: timestamp('moderated_at', { withTimezone: true }),
+
+    moderationNotes: text('moderation_notes'),
+
+    isFlaggedForReview: boolean('is_flagged_for_review')
+      .default(false)
+      .notNull(),
+
+    flagReason: text('flag_reason'),
+
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -2045,6 +2110,25 @@ export const assessmentQuestionGradesTable = pgTable(
         onDelete: 'set null',
       }),
 
+    isModerated: boolean('is_moderated')
+      .default(false)
+      .notNull(),
+
+    moderatedBy: uuid('moderated_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    moderatedAt: timestamp('moderated_at', { withTimezone: true }),
+
+    moderationNotes: text('moderation_notes'),
+
+    isFlaggedForReview: boolean('is_flagged_for_review')
+      .default(false)
+      .notNull(),
+
+    flagReason: text('flag_reason'),
+
     gradedAt: timestamp('graded_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -2076,11 +2160,15 @@ export const assessmentGradingAuditLogsTable = pgTable(
       .defaultRandom()
       .primaryKey(),
 
+    assessmentId: uuid('assessment_id')
+      .references(() => assessmentsTable.id, {
+        onDelete: 'cascade',
+      }),
+
     attemptId: uuid('attempt_id')
       .references(() => assessmentAttemptsTable.id, {
         onDelete: 'cascade',
-      })
-      .notNull(),
+      }),
 
     assessmentQuestionId: uuid('assessment_question_id')
       .references(() => assessmentQuestionsTable.id, {
@@ -2094,20 +2182,18 @@ export const assessmentGradingAuditLogsTable = pgTable(
 
     actorRole: text('actor_role')
       .default('LECTURER')
-      .notNull(), // 'LECTURER' | 'ADMIN'
+      .notNull(), // 'LECTURER' | 'ADMIN' | 'SYSTEM'
 
     action: text('action')
-      .notNull(), // 'CBT_AUTO_GRADED' | 'THEORY_GRADED' | 'GRADE_OVERRIDE' | 'FEEDBACK_UPDATED' | 'RE_EVALUATED'
+      .notNull(), // 'CBT_AUTO_GRADED' | 'THEORY_GRADED' | 'GRADE_OVERRIDE' | 'FEEDBACK_UPDATED' | 'RE_EVALUATED' | 'GRADE_MODERATED' | 'FLAGGED_FOR_REVIEW' | 'FLAG_CLEARED' | 'SUBMITTED_FOR_APPROVAL' | 'RESULTS_APPROVED' | 'RESULTS_REJECTED' | 'RESULTS_PUBLISHED'
 
     previousScore: real('previous_score'),
 
-    newScore: real('new_score')
-      .notNull(),
+    newScore: real('new_score'),
 
     previousStatus: text('previous_status'),
 
-    newStatus: text('new_status')
-      .notNull(),
+    newStatus: text('new_status'),
 
     reason: text('reason'),
 
@@ -2118,10 +2204,498 @@ export const assessmentGradingAuditLogsTable = pgTable(
       .notNull(),
   },
   (table) => ({
+    gradingAuditAssessmentIdx: index('assessment_grading_audit_assessment_idx').on(table.assessmentId),
     gradingAuditAttemptIdx: index('assessment_grading_audit_attempt_idx').on(table.attemptId),
     gradingAuditActorIdx: index('assessment_grading_audit_actor_idx').on(table.actorId),
   })
 );
+
+// =====================================================
+// ATTENDANCE MANAGEMENT (BB-07G)
+// =====================================================
+
+export const ATTENDANCE_SESSION_TYPES = {
+  LECTURE: 'LECTURE',
+  LAB: 'LAB',
+  TUTORIAL: 'TUTORIAL',
+  SEMINAR: 'SEMINAR',
+  PRACTICAL: 'PRACTICAL',
+} as const;
+
+export type AttendanceSessionType = (typeof ATTENDANCE_SESSION_TYPES)[keyof typeof ATTENDANCE_SESSION_TYPES];
+
+export const ATTENDANCE_SESSION_STATUSES = {
+  OPEN: 'OPEN',
+  CLOSED: 'CLOSED',
+  CANCELLED: 'CANCELLED',
+} as const;
+
+export type AttendanceSessionStatus = (typeof ATTENDANCE_SESSION_STATUSES)[keyof typeof ATTENDANCE_SESSION_STATUSES];
+
+export const ATTENDANCE_RECORD_STATUSES = {
+  PRESENT: 'PRESENT',
+  ABSENT: 'ABSENT',
+  LATE: 'LATE',
+  EXCUSED: 'EXCUSED',
+} as const;
+
+export type AttendanceRecordStatus = (typeof ATTENDANCE_RECORD_STATUSES)[keyof typeof ATTENDANCE_RECORD_STATUSES];
+
+export const attendanceSessionsTable = pgTable(
+  'attendance_sessions',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    offeringId: uuid('offering_id')
+      .references(() => courseOfferingsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    createdBy: uuid('created_by')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    title: text('title')
+      .notNull(),
+
+    sessionType: text('session_type')
+      .default('LECTURE')
+      .notNull(),
+
+    sessionDate: timestamp('session_date', { withTimezone: true })
+      .notNull(),
+
+    startTime: text('start_time'),
+
+    endTime: text('end_time'),
+
+    status: text('status')
+      .default('OPEN')
+      .notNull(),
+
+    notes: text('notes'),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    attendanceSessionsOfferingIdx: index('attendance_sessions_offering_idx').on(table.offeringId),
+    attendanceSessionsDateIdx: index('attendance_sessions_date_idx').on(table.sessionDate),
+    attendanceSessionsStatusIdx: index('attendance_sessions_status_idx').on(table.status),
+  })
+);
+
+export const attendanceRecordsTable = pgTable(
+  'attendance_records',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    sessionId: uuid('session_id')
+      .references(() => attendanceSessionsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    studentId: uuid('student_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    status: text('status')
+      .default('PRESENT')
+      .notNull(),
+
+    remarks: text('remarks'),
+
+    markedBy: uuid('marked_by')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    markedAt: timestamp('marked_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedBy: uuid('updated_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    attendanceRecordsSessionStudentUnique: unique('attendance_records_session_student_unique').on(
+      table.sessionId,
+      table.studentId
+    ),
+    attendanceRecordsSessionIdx: index('attendance_records_session_idx').on(table.sessionId),
+    attendanceRecordsStudentIdx: index('attendance_records_student_idx').on(table.studentId),
+    attendanceRecordsStatusIdx: index('attendance_records_status_idx').on(table.status),
+  })
+);
+
+export const attendanceAuditLogsTable = pgTable(
+  'attendance_audit_logs',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    recordId: uuid('record_id')
+      .references(() => attendanceRecordsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    sessionId: uuid('session_id')
+      .references(() => attendanceSessionsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    studentId: uuid('student_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    previousStatus: text('previous_status')
+      .notNull(),
+
+    newStatus: text('new_status')
+      .notNull(),
+
+    reason: text('reason')
+      .notNull(),
+
+    performedBy: uuid('performed_by')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    attendanceAuditRecordIdx: index('attendance_audit_logs_record_idx').on(table.recordId),
+    attendanceAuditSessionIdx: index('attendance_audit_logs_session_idx').on(table.sessionId),
+    attendanceAuditStudentIdx: index('attendance_audit_logs_student_idx').on(table.studentId),
+  })
+);
+
+// =====================================================
+// COURSE MATERIALS & LEARNING RESOURCES (BB-07H)
+// =====================================================
+
+export const COURSE_MATERIAL_CATEGORIES = {
+  LECTURE_NOTE: 'LECTURE_NOTE',
+  SYLLABUS: 'SYLLABUS',
+  SLIDE: 'SLIDE',
+  ASSIGNMENT_BRIEF: 'ASSIGNMENT_BRIEF',
+  LAB_MANUAL: 'LAB_MANUAL',
+  READING: 'READING',
+  OTHER: 'OTHER',
+} as const;
+
+export type CourseMaterialCategory = (typeof COURSE_MATERIAL_CATEGORIES)[keyof typeof COURSE_MATERIAL_CATEGORIES];
+
+export const COURSE_MATERIAL_STATUSES = {
+  DRAFT: 'DRAFT',
+  PUBLISHED: 'PUBLISHED',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+
+export type CourseMaterialStatus = (typeof COURSE_MATERIAL_STATUSES)[keyof typeof COURSE_MATERIAL_STATUSES];
+
+export const courseMaterialsTable = pgTable(
+  'course_materials',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    offeringId: uuid('offering_id')
+      .references(() => courseOfferingsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    uploadedBy: uuid('uploaded_by')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    title: text('title')
+      .notNull(),
+
+    description: text('description'),
+
+    category: text('category')
+      .default('LECTURE_NOTE')
+      .notNull(),
+
+    status: text('status')
+      .default('PUBLISHED')
+      .notNull(),
+
+    originalFileName: text('original_file_name')
+      .notNull(),
+
+    fileSizeBytes: integer('file_size_bytes')
+      .notNull(),
+
+    mimeType: text('mime_type')
+      .notNull(),
+
+    storageKey: text('storage_key')
+      .notNull(),
+
+    downloadCount: integer('download_count')
+      .default(0)
+      .notNull(),
+
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    courseMaterialsOfferingIdx: index('course_materials_offering_idx').on(table.offeringId),
+    courseMaterialsStatusIdx: index('course_materials_status_idx').on(table.status),
+    courseMaterialsCategoryIdx: index('course_materials_category_idx').on(table.category),
+  })
+);
+
+// =====================================================
+// OPPORTUNITY HUB & CAMPUS ENGAGEMENT (BB-06)
+// =====================================================
+
+export const OPPORTUNITY_CATEGORIES = {
+  SCHOLARSHIPS: 'SCHOLARSHIPS',
+  ORGANISATIONS: 'ORGANISATIONS',
+  TUTORIALS: 'TUTORIALS',
+} as const;
+
+export type OpportunityCategory =
+  (typeof OPPORTUNITY_CATEGORIES)[keyof typeof OPPORTUNITY_CATEGORIES];
+
+export const OPPORTUNITY_STATUS = {
+  DRAFT: 'DRAFT',
+  PUBLISHED: 'PUBLISHED',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+
+export type OpportunityStatus =
+  (typeof OPPORTUNITY_STATUS)[keyof typeof OPPORTUNITY_STATUS];
+
+export const OPPORTUNITY_VERIFICATION_STATUS = {
+  VERIFIED: 'VERIFIED',
+  COMMUNITY_SUBMITTED: 'COMMUNITY_SUBMITTED',
+  UNVERIFIED: 'UNVERIFIED',
+} as const;
+
+export type OpportunityVerificationStatus =
+  (typeof OPPORTUNITY_VERIFICATION_STATUS)[keyof typeof OPPORTUNITY_VERIFICATION_STATUS];
+
+export const opportunitiesTable = pgTable(
+  'opportunities',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    slug: text('slug')
+      .notNull()
+      .unique(),
+
+    category: text('category')
+      .notNull(),
+
+    title: text('title')
+      .notNull(),
+
+    organization: text('organization')
+      .notNull(),
+
+    shortDescription: text('short_description')
+      .notNull(),
+
+    fullDescription: text('full_description')
+      .notNull(),
+
+    requirements: text('requirements'),
+
+    benefits: text('benefits'),
+
+    applicationUrl: text('application_url'),
+
+    contactEmail: text('contact_email'),
+
+    contactPhone: text('contact_phone'),
+
+    logoUrl: text('logo_url'),
+
+    bannerUrl: text('banner_url'),
+
+    deadline: timestamp('deadline', { withTimezone: true }),
+
+    status: text('status')
+      .default(OPPORTUNITY_STATUS.DRAFT)
+      .notNull(),
+
+    verificationStatus: text('verification_status')
+      .default(OPPORTUNITY_VERIFICATION_STATUS.UNVERIFIED)
+      .notNull(),
+
+    isFeatured: boolean('is_featured')
+      .default(false)
+      .notNull(),
+
+    targetAudience: jsonb('target_audience')
+      .$type<{
+        isAll?: boolean;
+        facultyIds?: string[];
+        departmentIds?: string[];
+        levels?: number[];
+      }>()
+      .default({ isAll: true })
+      .notNull(),
+
+    clicksCount: integer('clicks_count')
+      .default(0)
+      .notNull(),
+
+    createdBy: uuid('created_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    updatedBy: uuid('updated_by')
+      .references(() => usersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    opportunitiesCategoryIdx: index('opportunities_category_idx').on(table.category),
+    opportunitiesStatusIdx: index('opportunities_status_idx').on(table.status),
+    opportunitiesPublishedAtIdx: index('opportunities_published_at_idx').on(table.publishedAt),
+    opportunitiesDeadlineIdx: index('opportunities_deadline_idx').on(table.deadline),
+    opportunitiesFeaturedIdx: index('opportunities_is_featured_idx').on(table.isFeatured),
+  })
+);
+
+export const opportunitySubscriptionsTable = pgTable(
+  'opportunity_subscriptions',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    category: text('category')
+      .notNull(),
+
+    isEnabled: boolean('is_enabled')
+      .default(true)
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    opportunitySubUserCategoryUnique: unique('opportunity_sub_user_category_unique').on(
+      table.userId,
+      table.category
+    ),
+    opportunitySubUserIdx: index('opportunity_sub_user_idx').on(table.userId),
+  })
+);
+
+export const opportunityBookmarksTable = pgTable(
+  'opportunity_bookmarks',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    opportunityId: uuid('opportunity_id')
+      .references(() => opportunitiesTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    opportunityBookmarkUserOppUnique: unique('opportunity_bookmark_user_opp_unique').on(
+      table.userId,
+      table.opportunityId
+    ),
+    opportunityBookmarkUserIdx: index('opportunity_bookmark_user_idx').on(table.userId),
+  })
+);
+
+export type Opportunity = typeof opportunitiesTable.$inferSelect;
+export type NewOpportunity = typeof opportunitiesTable.$inferInsert;
+export type OpportunitySubscription = typeof opportunitySubscriptionsTable.$inferSelect;
+export type NewOpportunitySubscription = typeof opportunitySubscriptionsTable.$inferInsert;
+export type OpportunityBookmark = typeof opportunityBookmarksTable.$inferSelect;
+export type NewOpportunityBookmark = typeof opportunityBookmarksTable.$inferInsert;
+
+
+
 
 
 

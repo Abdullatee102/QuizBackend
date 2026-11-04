@@ -18,6 +18,10 @@ import './questionWorkflow.test.js';
 import './assessmentWorkflow.test.js';
 import './assessmentParticipation.test.js';
 import './assessmentGrading.test.js';
+import './gradebookPublication.test.js';
+import './attendance.test.js';
+import './materials.test.js';
+import './opportunities.test.js';
 
 after(async () => {
   try {

@@ -50,7 +50,9 @@ export const getAssessmentInstructionsHandler = async (
     });
   } catch (error: any) {
     const isForbidden = error.message?.includes('Forbidden');
-    const isNotFound = error.message?.includes('not found');
+    const isNotFound =
+      error.message?.includes('not found') ||
+      error.message?.includes('No submitted');
     res.status(isForbidden ? 403 : isNotFound ? 404 : 400).json({
       status: 'fail',
       success: false,
@@ -85,7 +87,9 @@ export const startOrResumeAttemptHandler = async (
     });
   } catch (error: any) {
     const isForbidden = error.message?.includes('Forbidden');
-    const isNotFound = error.message?.includes('not found');
+    const isNotFound =
+      error.message?.includes('not found') ||
+      error.message?.includes('No submitted');
     res.status(isForbidden ? 403 : isNotFound ? 404 : 400).json({
       status: 'fail',
       success: false,
@@ -177,6 +181,41 @@ export const submitAttemptHandler = async (
       status: 'fail',
       success: false,
       message: error.message || 'Failed to submit assessment.',
+    });
+  }
+};
+
+/**
+ * Retrieves official published result for authenticated student.
+ */
+export const getStudentPublishedResultHandler = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const studentId = req.user?.id ? String(req.user.id) : null;
+    if (!studentId) {
+      res.status(401).json({ status: 'fail', success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const assessmentId = String(req.params.assessmentId);
+    const { gradebookService } = await import('../../services/gradebookService.js');
+
+    const result = await gradebookService.getStudentPublishedResult(studentId, assessmentId);
+
+    res.status(200).json({
+      status: 'success',
+      data: result,
+    });
+  } catch (error: any) {
+    const isNotFound =
+      error.message?.includes('not found') ||
+      error.message?.includes('No submitted');
+    res.status(isNotFound ? 404 : 500).json({
+      status: isNotFound ? 'fail' : 'error',
+      success: false,
+      message: error.message || 'Failed to retrieve assessment result.',
     });
   }
 };

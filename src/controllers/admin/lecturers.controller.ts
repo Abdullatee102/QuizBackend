@@ -1,6 +1,9 @@
 import type { Response } from 'express';
 import { adminLecturerService } from '../../services/admin/adminLecturerService.js';
 import type { AdminAuthenticatedRequest } from '../../types/admin.types.js';
+import { db } from '../../db/index.js';
+import { facultiesTable, departmentsTable } from '../../db/schema.js';
+import { asc, eq, and } from 'drizzle-orm';
 import logger from '../../config/logger.js';
 
 /**
@@ -210,5 +213,92 @@ export const revokeCourseAssignmentHandler = async (
       status: 'fail',
       message: error.message,
     });
+  }
+};
+
+/**
+ * Updates a lecturer's profile including faculty and department affiliation.
+ */
+export const updateLecturerProfileHandler = async (
+  req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const adminUserId = req.adminUser!.id;
+    const { lecturerId: rawLecturerId } = req.params;
+
+    if (!rawLecturerId) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Lecturer ID parameter is required.',
+      });
+      return;
+    }
+    const lecturerId = String(rawLecturerId);
+    const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || null;
+    const userAgent = req.headers['user-agent'] || null;
+
+    const result = await adminLecturerService.updateLecturerProfile(
+      lecturerId,
+      req.body,
+      adminUserId,
+      { ipAddress, userAgent }
+    );
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Lecturer profile updated successfully.',
+      data: result,
+    });
+  } catch (error: any) {
+    logger.warn(`[UPDATE LECTURER FAIL] ${error.message}`);
+    res.status(400).json({
+      status: 'fail',
+      message: error.message,
+    });
+  }
+};
+
+/**
+ * Lists institutional faculties.
+ */
+export const listFacultiesHandler = async (
+  _req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const faculties = await db.select().from(facultiesTable).orderBy(asc(facultiesTable.name));
+    res.status(200).json({ status: 'success', data: faculties });
+  } catch (error: any) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+};
+
+/**
+ * Lists institutional departments optionally filtered by faculty.
+ */
+export const listDepartmentsHandler = async (
+  req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { facultyId } = req.query;
+    const conditions = [];
+    if (facultyId) conditions.push(eq(departmentsTable.facultyId, String(facultyId) as any));
+    const departments = await db
+      .select({
+        id: departmentsTable.id,
+        name: departmentsTable.name,
+        code: departmentsTable.code,
+        facultyId: departmentsTable.facultyId,
+        facultyName: facultiesTable.name,
+      })
+      .from(departmentsTable)
+      .leftJoin(facultiesTable, eq(departmentsTable.facultyId, facultiesTable.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(asc(departmentsTable.name));
+    res.status(200).json({ status: 'success', data: departments });
+  } catch (error: any) {
+    res.status(500).json({ status: 'error', message: error.message });
   }
 };
