@@ -4,7 +4,7 @@ import coursesRoutes from './courses.routes.js';
 import offeringsRoutes from './offerings.routes.js';
 import questionsRoutes from './questions.routes.js';
 import assessmentsRoutes from './assessments.routes.js';
-import { lecturerLogin, getLecturerMe } from '../../controllers/lecturer/auth.controller.js';
+import { lecturerLogin, lecturerGoogleLogin, getLecturerMe } from '../../controllers/lecturer/auth.controller.js';
 import {
   getLecturerDashboard,
   listAssignedCourses,
@@ -25,6 +25,7 @@ router.use('/auth', authRoutes);
 
 // Root lecturer routes matching contracts directly
 router.post('/login', authRateLimiter, validate(lecturerLoginSchema), lecturerLogin);
+router.post('/google', authRateLimiter, lecturerGoogleLogin);
 router.get('/me', protectLecturer, getLecturerMe);
 router.get('/dashboard', protectLecturer, getLecturerDashboard);
 router.get('/courses', protectLecturer, listAssignedCourses);

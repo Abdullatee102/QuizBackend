@@ -22,6 +22,8 @@ import './gradebookPublication.test.js';
 import './attendance.test.js';
 import './materials.test.js';
 import './opportunities.test.js';
+import './announcements.test.js';
+import './bulkQuestionAndPaper.test.js';
 
 after(async () => {
   try {

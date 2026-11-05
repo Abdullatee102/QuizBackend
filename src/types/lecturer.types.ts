@@ -10,6 +10,8 @@ export interface LecturerUserPayload {
   status: AccountStatus;
   facultyId?: string | null;
   departmentId?: string | null;
+  photoURL?: string | null;
+  phoneNumber?: string | null;
 }
 
 export interface LecturerAuthenticatedRequest extends Request {

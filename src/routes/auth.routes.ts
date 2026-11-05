@@ -56,10 +56,22 @@ import {
   listStudentMaterialsHandler,
   downloadStudentMaterialHandler,
 } from '../controllers/student/materials.controller.js';
+import { listStudentAnnouncementsHandler } from '../controllers/student/announcements.controller.js';
+import {
+  listStudentDiscussionsHandler,
+  createStudentDiscussionHandler,
+  getStudentDiscussionDetailsHandler,
+  replyStudentDiscussionHandler,
+  deleteStudentDiscussionHandler,
+} from '../controllers/student/discussions.controller.js';
 import {
   saveAnswersSchema,
   submitAttemptSchema,
 } from '../schemas/assessmentAttempt.schemas.js';
+import {
+  createDiscussionSchema,
+  replyDiscussionSchema,
+} from '../schemas/discussion.schemas.js';
 
 
 import { validate } from '../middlewares/validate.middleware.js';
@@ -382,6 +394,42 @@ router.get(
   '/offerings/:offeringId/materials/:materialId/download',
   protect,
   downloadStudentMaterialHandler
+);
+
+// Course Announcements (BB-07I)
+router.get(
+  '/offerings/:offeringId/announcements',
+  protect,
+  listStudentAnnouncementsHandler
+);
+
+// Course Discussions (BB-07I)
+router.get(
+  '/offerings/:offeringId/discussions',
+  protect,
+  listStudentDiscussionsHandler
+);
+router.post(
+  '/offerings/:offeringId/discussions',
+  protect,
+  validate(createDiscussionSchema),
+  createStudentDiscussionHandler
+);
+router.get(
+  '/offerings/:offeringId/discussions/:discussionId',
+  protect,
+  getStudentDiscussionDetailsHandler
+);
+router.post(
+  '/offerings/:offeringId/discussions/:discussionId/replies',
+  protect,
+  validate(replyDiscussionSchema),
+  replyStudentDiscussionHandler
+);
+router.delete(
+  '/offerings/:offeringId/discussions/:discussionId',
+  protect,
+  deleteStudentDiscussionHandler
 );
 
 

@@ -32,6 +32,20 @@ import {
   downloadMaterialHandler,
 } from '../../controllers/lecturer/materials.controller.js';
 import {
+  createAnnouncementHandler,
+  listOfferingAnnouncementsHandler,
+  updateAnnouncementHandler,
+  deleteAnnouncementHandler,
+} from '../../controllers/lecturer/announcements.controller.js';
+import {
+  listLecturerDiscussionsHandler,
+  createLecturerDiscussionHandler,
+  getLecturerDiscussionDetailsHandler,
+  replyLecturerDiscussionHandler,
+  moderateLecturerDiscussionHandler,
+  deleteLecturerDiscussionHandler,
+} from '../../controllers/lecturer/discussions.controller.js';
+import {
   handleMaterialUploadMiddleware,
 } from '../../services/storage/materialStorageService.js';
 import { protectLecturer } from '../../middlewares/lecturerAuth.middleware.js';
@@ -48,6 +62,15 @@ import {
   createMaterialSchema,
   updateMaterialSchema,
 } from '../../schemas/material.schemas.js';
+import {
+  createAnnouncementSchema,
+  updateAnnouncementSchema,
+} from '../../schemas/announcement.schemas.js';
+import {
+  createDiscussionSchema,
+  replyDiscussionSchema,
+  moderateDiscussionSchema,
+} from '../../schemas/discussion.schemas.js';
 
 const router = Router();
 
@@ -104,6 +127,40 @@ router.patch(
 );
 router.delete('/:offeringId/materials/:materialId', deleteMaterialHandler);
 router.get('/:offeringId/materials/:materialId/download', downloadMaterialHandler);
+
+// Course Announcements (BB-07I)
+router.get('/:offeringId/announcements', listOfferingAnnouncementsHandler);
+router.post(
+  '/:offeringId/announcements',
+  validate(createAnnouncementSchema),
+  createAnnouncementHandler
+);
+router.patch(
+  '/:offeringId/announcements/:announcementId',
+  validate(updateAnnouncementSchema),
+  updateAnnouncementHandler
+);
+router.delete('/:offeringId/announcements/:announcementId', deleteAnnouncementHandler);
+
+// Course Discussions (BB-07I)
+router.get('/:offeringId/discussions', listLecturerDiscussionsHandler);
+router.post(
+  '/:offeringId/discussions',
+  validate(createDiscussionSchema),
+  createLecturerDiscussionHandler
+);
+router.get('/:offeringId/discussions/:discussionId', getLecturerDiscussionDetailsHandler);
+router.post(
+  '/:offeringId/discussions/:discussionId/replies',
+  validate(replyDiscussionSchema),
+  replyLecturerDiscussionHandler
+);
+router.patch(
+  '/:offeringId/discussions/:discussionId/moderate',
+  validate(moderateDiscussionSchema),
+  moderateLecturerDiscussionHandler
+);
+router.delete('/:offeringId/discussions/:discussionId', deleteLecturerDiscussionHandler);
 
 export default router;
 

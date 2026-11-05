@@ -9,6 +9,7 @@ export interface AdminUserPayload {
   fullName?: string;
   username?: string | null;
   permissions?: string[];
+  photoURL?: string | null;
 }
 
 export interface AdminAuthenticatedRequest extends Request {

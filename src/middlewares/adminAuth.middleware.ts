@@ -58,6 +58,7 @@ export const protectAdmin = async (
         username: usersTable.username,
         role: usersTable.role,
         status: usersTable.status,
+        photoURL: usersTable.photoURL,
       })
       .from(usersTable)
       .where(eq(usersTable.id, userId as any));
@@ -98,6 +99,7 @@ export const protectAdmin = async (
       role: user.role as UserRole,
       status: user.status as AccountStatus,
       permissions: getRolePermissions(user.role),
+      photoURL: user.photoURL,
     };
 
     req.adminUser = adminPayload;

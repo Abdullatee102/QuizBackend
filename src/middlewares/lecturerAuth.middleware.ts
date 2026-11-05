@@ -63,6 +63,8 @@ export const protectLecturer = async (
         status: usersTable.status,
         facultyId: usersTable.facultyId,
         departmentId: usersTable.departmentId,
+        photoURL: usersTable.photoURL,
+        phoneNumber: usersTable.phoneNumber,
       })
       .from(usersTable)
       .where(eq(usersTable.id, userId as any));
@@ -104,6 +106,8 @@ export const protectLecturer = async (
       status: user.status as AccountStatus,
       facultyId: user.facultyId,
       departmentId: user.departmentId,
+      photoURL: user.photoURL,
+      phoneNumber: user.phoneNumber,
     };
 
     req.lecturerUser = lecturerPayload;

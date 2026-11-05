@@ -8,6 +8,10 @@ import {
   withdrawQuestionHandler,
   deleteQuestionDraftHandler,
   uploadQuestionImageHandler,
+  downloadQuestionTemplateHandler,
+  bulkImportQuestionsHandler,
+  generateQuestionPaperPdfHandler,
+  uploadWorkbook,
 } from '../../controllers/lecturer/questions.controller.js';
 import { protectLecturer } from '../../middlewares/lecturerAuth.middleware.js';
 import { validate } from '../../middlewares/validate.middleware.js';
@@ -25,6 +29,14 @@ router.use(protectLecturer);
 // Question image upload
 router.post('/upload-image', uploadAttachment.single('file'), uploadQuestionImageHandler);
 
+// Bulk Import & Template
+router.get('/template', downloadQuestionTemplateHandler);
+router.post('/bulk-import', uploadWorkbook.single('file'), bulkImportQuestionsHandler);
+router.post('/offerings/:offeringId/bulk-import', uploadWorkbook.single('file'), bulkImportQuestionsHandler);
+
+// Printable Paper PDF Generation
+router.post('/offerings/:offeringId/paper-pdf', generateQuestionPaperPdfHandler);
+
 // Question drafts and listing
 router.get('/', validate(listQuestionsQuerySchema), listLecturerQuestionsHandler);
 router.post('/', validate(createQuestionDraftSchema), createQuestionDraftHandler);
@@ -38,4 +50,3 @@ router.post('/:questionId/withdraw', withdrawQuestionHandler);
 router.delete('/:questionId', deleteQuestionDraftHandler);
 
 export default router;
-

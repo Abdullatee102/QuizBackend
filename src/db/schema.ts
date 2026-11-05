@@ -2694,6 +2694,193 @@ export type NewOpportunitySubscription = typeof opportunitySubscriptionsTable.$i
 export type OpportunityBookmark = typeof opportunityBookmarksTable.$inferSelect;
 export type NewOpportunityBookmark = typeof opportunityBookmarksTable.$inferInsert;
 
+// =====================================================
+// COURSE ANNOUNCEMENTS & DISCUSSIONS ENGINE (BB-07I)
+// =====================================================
+
+export const ANNOUNCEMENT_PRIORITIES = {
+  NORMAL: 'NORMAL',
+  IMPORTANT: 'IMPORTANT',
+  URGENT: 'URGENT',
+} as const;
+
+export type AnnouncementPriority =
+  (typeof ANNOUNCEMENT_PRIORITIES)[keyof typeof ANNOUNCEMENT_PRIORITIES];
+
+export const ANNOUNCEMENT_STATUSES = {
+  DRAFT: 'DRAFT',
+  PUBLISHED: 'PUBLISHED',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+
+export type AnnouncementStatus =
+  (typeof ANNOUNCEMENT_STATUSES)[keyof typeof ANNOUNCEMENT_STATUSES];
+
+export const courseAnnouncementsTable = pgTable(
+  'course_announcements',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    offeringId: uuid('offering_id')
+      .references(() => courseOfferingsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    lecturerId: uuid('lecturer_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    title: text('title')
+      .notNull(),
+
+    content: text('content')
+      .notNull(),
+
+    priority: text('priority')
+      .default(ANNOUNCEMENT_PRIORITIES.NORMAL)
+      .notNull(),
+
+    status: text('status')
+      .default(ANNOUNCEMENT_STATUSES.PUBLISHED)
+      .notNull(),
+
+    attachmentUrl: text('attachment_url'),
+
+    attachmentName: text('attachment_name'),
+
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    courseAnnouncementsOfferingIdx: index('course_announcements_offering_idx').on(table.offeringId),
+    courseAnnouncementsStatusIdx: index('course_announcements_status_idx').on(table.status),
+    courseAnnouncementsPriorityIdx: index('course_announcements_priority_idx').on(table.priority),
+  })
+);
+
+export const courseDiscussionsTable = pgTable(
+  'course_discussions',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    offeringId: uuid('offering_id')
+      .references(() => courseOfferingsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    announcementId: uuid('announcement_id')
+      .references(() => courseAnnouncementsTable.id, {
+        onDelete: 'cascade',
+      }),
+
+    authorId: uuid('author_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    authorRole: text('author_role')
+      .notNull(), // 'LECTURER' | 'STUDENT'
+
+    title: text('title')
+      .notNull(),
+
+    content: text('content')
+      .notNull(),
+
+    isPinned: boolean('is_pinned')
+      .default(false)
+      .notNull(),
+
+    isLocked: boolean('is_locked')
+      .default(false)
+      .notNull(),
+
+    replyCount: integer('reply_count')
+      .default(0)
+      .notNull(),
+
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    courseDiscussionsOfferingIdx: index('course_discussions_offering_idx').on(table.offeringId),
+    courseDiscussionsAnnouncementIdx: index('course_discussions_announcement_idx').on(table.announcementId),
+    courseDiscussionsPinnedIdx: index('course_discussions_pinned_idx').on(table.isPinned),
+    courseDiscussionsLastActivityIdx: index('course_discussions_last_activity_idx').on(table.lastActivityAt),
+  })
+);
+
+export const courseDiscussionRepliesTable = pgTable(
+  'course_discussion_replies',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    discussionId: uuid('discussion_id')
+      .references(() => courseDiscussionsTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    authorId: uuid('author_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    authorRole: text('author_role')
+      .notNull(), // 'LECTURER' | 'STUDENT'
+
+    content: text('content')
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    courseDiscussionRepliesDiscussionIdx: index('course_discussion_replies_discussion_idx').on(table.discussionId),
+  })
+);
+
+export type CourseAnnouncement = typeof courseAnnouncementsTable.$inferSelect;
+export type NewCourseAnnouncement = typeof courseAnnouncementsTable.$inferInsert;
+export type CourseDiscussion = typeof courseDiscussionsTable.$inferSelect;
+export type NewCourseDiscussion = typeof courseDiscussionsTable.$inferInsert;
+export type CourseDiscussionReply = typeof courseDiscussionRepliesTable.$inferSelect;
+export type NewCourseDiscussionReply = typeof courseDiscussionRepliesTable.$inferInsert;
+
+
 
 
 

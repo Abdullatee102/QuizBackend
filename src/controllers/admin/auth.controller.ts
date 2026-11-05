@@ -3,6 +3,8 @@ import { eq, or } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { usersTable, refreshTokensTable } from '../../db/schema.js';
 import { authService } from '../../services/authService.js';
+import { googleAuthService } from '../../services/googleAuthService.js';
+import { storageProvider } from '../../services/storage/storageService.js';
 import { auditService } from '../../services/admin/auditService.js';
 import { isAdminRole, getRolePermissions } from '../../config/permissions.js';
 import type { AdminAuthenticatedRequest } from '../../types/admin.types.js';
@@ -54,7 +56,7 @@ export const adminLogin = async (
     return;
   }
 
-  // Reject non-admin (students)
+  // Reject non-admin (students/lecturers)
   if (!isAdminRole(user.role)) {
     logger.warn(`[ADMIN LOGIN DENIED] Non-admin attempted admin login: ${user.email} (Role: ${user.role})`);
     res.status(403).json({
@@ -82,6 +84,7 @@ export const adminLogin = async (
     metadata: {
       email: user.email,
       role: user.role,
+      method: 'password',
     },
     ipAddress,
     userAgent,
@@ -101,8 +104,129 @@ export const adminLogin = async (
       role: user.role as UserRole,
       status: user.status as AccountStatus,
       permissions: getRolePermissions(user.role),
+      photoURL: user.photoURL,
     },
   });
+};
+
+/**
+ * Handles secure Google Sign-In for Admin portal.
+ * STRICT: Only pre-provisioned, ACTIVE accounts with authorized admin roles are permitted.
+ * Unknown Google users are NEVER registered automatically.
+ */
+export const adminGoogleLogin = async (
+  req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Google ID token is required.',
+      });
+      return;
+    }
+
+    const claims = await googleAuthService.verifyGoogleToken(idToken);
+    const verifiedEmail = claims.email.toLowerCase().trim();
+
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, verifiedEmail));
+
+    if (!user) {
+      logger.warn(`[ADMIN GOOGLE AUTH REJECTED] Unregistered Google email: ${verifiedEmail}`);
+      res.status(403).json({
+        status: 'fail',
+        message: 'Access denied. No authorized Brain Buzz administrator account found for this Google email. Administrators must be provisioned by a Super Administrator.',
+      });
+      return;
+    }
+
+    // Role check: ONLY authorized admin roles permitted
+    if (!isAdminRole(user.role)) {
+      logger.warn(`[ADMIN GOOGLE AUTH REJECTED] Non-admin role for ${verifiedEmail}: ${user.role}`);
+      res.status(403).json({
+        status: 'fail',
+        message: 'Access denied. Account is not registered with administrative privileges.',
+      });
+      return;
+    }
+
+    // Status check
+    if (user.status !== 'ACTIVE') {
+      logger.warn(`[ADMIN GOOGLE AUTH BLOCKED] Inactive account for ${verifiedEmail}: ${user.status}`);
+      res.status(403).json({
+        status: 'fail',
+        message: `Account is ${user.status.toLowerCase()}. Access denied.`,
+      });
+      return;
+    }
+
+    // Optionally sync photoURL if user does not have one
+    if (claims.picture && !user.photoURL) {
+      try {
+        await db
+          .update(usersTable)
+          .set({ photoURL: claims.picture })
+          .where(eq(usersTable.id, user.id));
+        user.photoURL = claims.picture;
+      } catch (err: any) {
+        logger.warn(`[ADMIN GOOGLE AUTH] Could not update photoURL: ${err.message}`);
+      }
+    }
+
+    const tokens = await authService.generateAuthTokens({
+      id: user.id,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+    });
+
+    const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || null;
+    const userAgent = req.headers['user-agent'] || null;
+
+    await auditService.logAdminAction({
+      adminUserId: user.id,
+      action: 'ADMIN_LOGIN',
+      resourceType: 'auth',
+      resourceId: user.id,
+      metadata: {
+        email: user.email,
+        role: user.role,
+        method: 'google_sso',
+      },
+      ipAddress,
+      userAgent,
+    });
+
+    logger.info(`[ADMIN GOOGLE AUTH SUCCESS] Admin logged in with Google SSO: ${user.email} (Role: ${user.role})`);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Admin authenticated successfully via Google.',
+      tokens,
+      user: {
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        username: user.username,
+        role: user.role as UserRole,
+        status: user.status as AccountStatus,
+        permissions: getRolePermissions(user.role),
+        photoURL: user.photoURL,
+      },
+    });
+  } catch (error: any) {
+    logger.error(`[ADMIN GOOGLE AUTH ERROR] ${error.message}`);
+    res.status(401).json({
+      status: 'fail',
+      message: error.message || 'Google authentication failed.',
+    });
+  }
 };
 
 export const getAdminMe = async (
@@ -248,3 +372,134 @@ export const adminChangePassword = async (
   });
 };
 
+/**
+ * Updates admin profile details (fullName, phoneNumber, photoURL).
+ */
+export const updateAdminProfile = async (
+  req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const adminId = req.adminUser?.id;
+    if (!adminId) {
+      res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return;
+    }
+
+    const { fullName, phoneNumber, photoURL } = req.body;
+    const updates: Record<string, any> = {};
+
+    if (fullName !== undefined) updates.fullName = String(fullName).trim();
+    if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber ? String(phoneNumber).trim() : null;
+    if (photoURL !== undefined) updates.photoURL = photoURL ? String(photoURL).trim() : null;
+
+    if (Object.keys(updates).length === 0) {
+      res.status(400).json({ status: 'fail', message: 'No valid update fields provided.' });
+      return;
+    }
+
+    const [updated] = await db
+      .update(usersTable)
+      .set(updates)
+      .where(eq(usersTable.id, adminId as any))
+      .returning({
+        id: usersTable.id,
+        fullName: usersTable.fullName,
+        email: usersTable.email,
+        username: usersTable.username,
+        role: usersTable.role,
+        status: usersTable.status,
+        photoURL: usersTable.photoURL,
+        phoneNumber: usersTable.phoneNumber,
+      });
+
+    if (!updated) {
+      res.status(404).json({ status: 'fail', message: 'Admin not found.' });
+      return;
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile updated successfully.',
+      user: {
+        ...updated,
+        permissions: getRolePermissions(updated.role as UserRole),
+      },
+    });
+  } catch (error: any) {
+    if (error.code === '23505' || error.message?.includes('unique constraint')) {
+      res.status(409).json({
+        status: 'fail',
+        message: 'Phone number or username is already taken by another account.',
+      });
+      return;
+    }
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+};
+
+/**
+ * Uploads a profile picture for the authenticated admin.
+ */
+export const uploadAdminAvatar = async (
+  req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const adminId = req.adminUser?.id;
+    if (!adminId) {
+      res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return;
+    }
+
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ status: 'fail', message: 'No image file uploaded.' });
+      return;
+    }
+
+    const stored = await storageProvider.saveFile(file);
+
+    await db
+      .update(usersTable)
+      .set({ photoURL: stored.url })
+      .where(eq(usersTable.id, adminId as any));
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile picture updated successfully.',
+      photoURL: stored.url,
+    });
+  } catch (error: any) {
+    res.status(400).json({ status: 'fail', message: error.message || 'Failed to upload profile picture.' });
+  }
+};
+
+/**
+ * Resets / removes the profile picture for the authenticated admin.
+ */
+export const removeAdminAvatar = async (
+  req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const adminId = req.adminUser?.id;
+    if (!adminId) {
+      res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+      return;
+    }
+
+    await db
+      .update(usersTable)
+      .set({ photoURL: null })
+      .where(eq(usersTable.id, adminId as any));
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile picture removed.',
+      photoURL: null,
+    });
+  } catch (error: any) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+};

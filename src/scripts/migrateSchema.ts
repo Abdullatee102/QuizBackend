@@ -755,7 +755,60 @@ async function runMigration() {
       );
       CREATE INDEX IF NOT EXISTS opportunity_bookmark_user_idx ON opportunity_bookmarks (user_id);
     `);
-    console.log('[MIGRATION] Opportunity Hub tables verified (BB-06)');
+    // 26. Announcements & Discussions Engine (BB-07I)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS course_announcements (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        offering_id uuid NOT NULL REFERENCES course_offerings(id) ON DELETE CASCADE,
+        lecturer_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title text NOT NULL,
+        content text NOT NULL,
+        priority text NOT NULL DEFAULT 'NORMAL',
+        status text NOT NULL DEFAULT 'DRAFT',
+        attachment_url text,
+        attachment_name text,
+        published_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS course_announcements_offering_idx ON course_announcements (offering_id);
+      CREATE INDEX IF NOT EXISTS course_announcements_lecturer_idx ON course_announcements (lecturer_id);
+      CREATE INDEX IF NOT EXISTS course_announcements_status_idx ON course_announcements (status);
+      CREATE INDEX IF NOT EXISTS course_announcements_priority_idx ON course_announcements (priority);
+      CREATE INDEX IF NOT EXISTS course_announcements_published_at_idx ON course_announcements (published_at);
+
+      CREATE TABLE IF NOT EXISTS course_discussions (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        offering_id uuid NOT NULL REFERENCES course_offerings(id) ON DELETE CASCADE,
+        announcement_id uuid REFERENCES course_announcements(id) ON DELETE SET NULL,
+        author_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        author_role text NOT NULL DEFAULT 'STUDENT',
+        title text NOT NULL,
+        content text NOT NULL,
+        is_pinned boolean NOT NULL DEFAULT false,
+        is_locked boolean NOT NULL DEFAULT false,
+        reply_count integer NOT NULL DEFAULT 0,
+        last_activity_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS course_discussions_offering_idx ON course_discussions (offering_id);
+      CREATE INDEX IF NOT EXISTS course_discussions_author_idx ON course_discussions (author_id);
+      CREATE INDEX IF NOT EXISTS course_discussions_is_pinned_idx ON course_discussions (is_pinned);
+      CREATE INDEX IF NOT EXISTS course_discussions_last_activity_idx ON course_discussions (last_activity_at);
+
+      CREATE TABLE IF NOT EXISTS course_discussion_replies (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        discussion_id uuid NOT NULL REFERENCES course_discussions(id) ON DELETE CASCADE,
+        author_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        author_role text NOT NULL DEFAULT 'STUDENT',
+        content text NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS course_discussion_replies_discussion_idx ON course_discussion_replies (discussion_id);
+    `);
+    console.log('[MIGRATION] Course Announcements & Discussions tables verified (BB-07I)');
 
 
 
