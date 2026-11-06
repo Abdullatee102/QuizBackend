@@ -6,6 +6,7 @@ import {
   coursesTable,
   departmentsTable,
   facultiesTable,
+  usersTable,
 } from '../../db/schema.js';
 import { and, eq } from 'drizzle-orm';
 import { studentEnrollmentService } from '../../services/studentEnrollmentService.js';
@@ -173,6 +174,51 @@ export const getAvailableCourseOfferingsHandler = async (
       return;
     }
 
+    const [student] = await db
+      .select({
+        id: usersTable.id,
+        role: usersTable.role,
+        status: usersTable.status,
+        facultyId: usersTable.facultyId,
+        departmentId: usersTable.departmentId,
+        level: usersTable.level,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, studentId as any));
+
+    if (!student) {
+      res.status(404).json({ status: 'fail', message: 'Student account not found.' });
+      return;
+    }
+
+    const conditions = [
+      eq(courseOfferingsTable.status, 'ACTIVE'),
+      eq(coursesTable.isActive, true),
+    ];
+
+    // Filter by student's academic department if configured on student profile
+    if (student.departmentId) {
+      conditions.push(eq(coursesTable.departmentId, student.departmentId as any));
+    } else if (student.facultyId) {
+      // If student only has facultyId configured, filter by departments within their faculty
+      conditions.push(eq(departmentsTable.facultyId, student.facultyId as any));
+    }
+
+    // Filter by student's academic level if configured on student profile
+    if (student.level) {
+      conditions.push(eq(courseOfferingsTable.level, student.level));
+    }
+
+    // Filter by semester if provided in query params
+    if (req.query.semester && typeof req.query.semester === 'string') {
+      conditions.push(eq(courseOfferingsTable.semester, req.query.semester.trim().toLowerCase()));
+    }
+
+    // Filter by academic session if provided in query params
+    if (req.query.academicSession && typeof req.query.academicSession === 'string') {
+      conditions.push(eq(courseOfferingsTable.academicSession, req.query.academicSession.trim()));
+    }
+
     const offerings = await db
       .select({
         id: courseOfferingsTable.id,
@@ -192,12 +238,7 @@ export const getAvailableCourseOfferingsHandler = async (
       .innerJoin(coursesTable, eq(courseOfferingsTable.courseId, coursesTable.id))
       .leftJoin(departmentsTable, eq(coursesTable.departmentId, departmentsTable.id))
       .leftJoin(facultiesTable, eq(departmentsTable.facultyId, facultiesTable.id))
-      .where(
-        and(
-          eq(courseOfferingsTable.status, 'ACTIVE'),
-          eq(coursesTable.isActive, true)
-        )
-      )
+      .where(and(...conditions))
       .orderBy(coursesTable.code);
 
     const existingEnrollments = await db

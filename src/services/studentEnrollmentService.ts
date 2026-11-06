@@ -22,7 +22,7 @@ export const studentEnrollmentService = {
     source: EnrollmentSource = 'ADMIN_MANUAL',
     auditContext?: AuditContextInput
   ) => {
-    // 1. Verify offering exists and is not archived/completed
+    // 1. Verify offering exists and is active
     const [offering] = await db
       .select({
         id: courseOfferingsTable.id,
@@ -31,16 +31,21 @@ export const studentEnrollmentService = {
         status: courseOfferingsTable.status,
         academicSession: courseOfferingsTable.academicSession,
         semester: courseOfferingsTable.semester,
+        level: courseOfferingsTable.level,
+        maxCapacity: courseOfferingsTable.maxCapacity,
+        departmentId: coursesTable.departmentId,
+        facultyId: departmentsTable.facultyId,
       })
       .from(courseOfferingsTable)
       .innerJoin(coursesTable, eq(courseOfferingsTable.courseId, coursesTable.id))
+      .leftJoin(departmentsTable, eq(coursesTable.departmentId, departmentsTable.id))
       .where(eq(courseOfferingsTable.id, offeringId as any));
 
     if (!offering) {
       throw new Error('Course offering not found');
     }
 
-    if (offering.status === 'ARCHIVED' || offering.status === 'COMPLETED') {
+    if (offering.status !== 'ACTIVE') {
       throw new Error(`Cannot enrol students into a ${offering.status.toLowerCase()} course offering`);
     }
 
@@ -56,6 +61,35 @@ export const studentEnrollmentService = {
 
     if (student.status !== 'ACTIVE') {
       throw new Error('Student account is suspended or disabled');
+    }
+
+    // 3. For student self-enrollment, enforce eligibility (matching department, faculty, and level)
+    if (source === 'STUDENT_SELF') {
+      if (student.departmentId && offering.departmentId && student.departmentId !== offering.departmentId) {
+        throw new Error('Student is not eligible for course offerings outside their department');
+      }
+      if (student.facultyId && offering.facultyId && student.facultyId !== offering.facultyId) {
+        throw new Error('Student is not eligible for course offerings outside their faculty');
+      }
+      if (student.level && offering.level && student.level !== offering.level) {
+        throw new Error(`Student level (${student.level}) does not match course offering level (${offering.level})`);
+      }
+    }
+
+    // 4. Check offering max capacity
+    if (offering.maxCapacity && offering.maxCapacity > 0) {
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)`.mapWith(Number) })
+        .from(studentEnrollmentsTable)
+        .where(
+          and(
+            eq(studentEnrollmentsTable.offeringId, offeringId as any),
+            eq(studentEnrollmentsTable.status, 'ENROLLED')
+          )
+        );
+      if ((countResult?.count || 0) >= offering.maxCapacity) {
+        throw new Error('Course offering has reached maximum capacity');
+      }
     }
 
     // 3. Check existing enrolment

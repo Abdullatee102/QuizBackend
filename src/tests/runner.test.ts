@@ -24,6 +24,7 @@ import './materials.test.js';
 import './opportunities.test.js';
 import './announcements.test.js';
 import './bulkQuestionAndPaper.test.js';
+import './studentEnrollmentWorkflow.test.js';
 
 after(async () => {
   try {
