@@ -1,6 +1,7 @@
 import express from 'express';
 import type { Application, Request, Response } from 'express';
 import http from 'http';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
@@ -88,8 +89,9 @@ app.use(
 socketService.init(httpServer);
 
 // =====================================================
-// STEP 5: APPLICATION ROUTE GROUPS
+// STEP 5: APPLICATION ROUTE GROUPS & STATIC ASSETS
 // =====================================================
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 app.use('/api/auth', authRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/messages', messageRoutes);

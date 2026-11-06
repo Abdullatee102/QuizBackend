@@ -36,7 +36,10 @@ import {
 import {
   getStudentEnrollmentsHandler,
   getStudentEligibleOfferingsHandler,
+  getAvailableCourseOfferingsHandler,
   checkOfferingEligibilityHandler,
+  enrollInOfferingHandler,
+  unenrollFromOfferingHandler,
 } from '../controllers/student/enrollments.controller.js';
 import {
   getStudentOfferingAssessmentsHandler,
@@ -341,7 +344,11 @@ router.get(
 // =====================================================
 
 router.get('/enrollments', protect, getStudentEnrollmentsHandler);
+router.post('/enrollments', protect, enrollInOfferingHandler);
+router.get('/offerings/available', protect, getAvailableCourseOfferingsHandler);
 router.get('/offerings/eligible', protect, getStudentEligibleOfferingsHandler);
+router.post('/offerings/:offeringId/enroll', protect, enrollInOfferingHandler);
+router.delete('/offerings/:offeringId/enroll', protect, unenrollFromOfferingHandler);
 router.get('/offerings/:offeringId/eligibility', protect, checkOfferingEligibilityHandler);
 
 // =====================================================
