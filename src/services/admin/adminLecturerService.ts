@@ -13,6 +13,7 @@ import {
 } from '../../db/schema.js';
 import { auditService } from './auditService.js';
 import logger from '../../config/logger.js';
+import { formatUserDisplayId } from '../../utils/identifier.js';
 
 export const adminLecturerService = {
   /**
@@ -133,7 +134,10 @@ export const adminLecturerService = {
         or(
           ilike(usersTable.fullName, pattern),
           ilike(usersTable.email, pattern),
-          ilike(usersTable.username, pattern)
+          ilike(usersTable.username, pattern),
+          sql`CAST(${usersTable.id} AS TEXT) ILIKE ${pattern}`,
+          ilike(departmentsTable.code, pattern),
+          ilike(departmentsTable.name, pattern)
         )!
       );
     }
@@ -165,6 +169,7 @@ export const adminLecturerService = {
         facultyName: facultiesTable.name,
         departmentId: usersTable.departmentId,
         departmentName: departmentsTable.name,
+        departmentCode: departmentsTable.code,
         createdAt: usersTable.createdAt,
       })
       .from(usersTable)
@@ -178,12 +183,13 @@ export const adminLecturerService = {
     const countQuery = db
       .select({ count: sql<number>`count(*)`.mapWith(Number) })
       .from(usersTable)
+      .leftJoin(departmentsTable, eq(usersTable.departmentId, departmentsTable.id))
       .where(whereClause);
 
     const [lecturers, countResult] = await Promise.all([lecturersQuery, countQuery]);
     const total = countResult[0]?.count || 0;
 
-    // Attach active course assignment counts
+    // Attach active course assignment counts and formatted display ID
     const enriched = await Promise.all(
       lecturers.map(async (l) => {
         const [assignmentCount] = await db
@@ -198,6 +204,12 @@ export const adminLecturerService = {
 
         return {
           ...l,
+          customId: formatUserDisplayId({
+            id: l.id,
+            role: l.role,
+            departmentCode: l.departmentCode,
+            username: l.username,
+          }),
           assignedCoursesCount: assignmentCount?.count || 0,
         };
       })
@@ -231,6 +243,7 @@ export const adminLecturerService = {
         facultyName: facultiesTable.name,
         departmentId: usersTable.departmentId,
         departmentName: departmentsTable.name,
+        departmentCode: departmentsTable.code,
         createdAt: usersTable.createdAt,
       })
       .from(usersTable)
@@ -267,7 +280,15 @@ export const adminLecturerService = {
       .orderBy(desc(courseAssignmentsTable.createdAt));
 
     return {
-      lecturer,
+      lecturer: {
+        ...lecturer,
+        customId: formatUserDisplayId({
+          id: lecturer.id,
+          role: lecturer.role,
+          departmentCode: lecturer.departmentCode,
+          username: lecturer.username,
+        }),
+      },
       assignments,
     };
   },

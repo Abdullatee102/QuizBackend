@@ -7,6 +7,7 @@ import { googleAuthService } from '../../services/googleAuthService.js';
 import { storageProvider } from '../../services/storage/storageService.js';
 import type { LecturerAuthenticatedRequest } from '../../types/lecturer.types.js';
 import logger from '../../config/logger.js';
+import { formatUserDisplayId } from '../../utils/identifier.js';
 
 /**
  * Handles lecturer login for the lecturer web portal with email/password.
@@ -237,15 +238,27 @@ export const getLecturerMe = async (
         bio: usersTable.bio,
         facultyName: facultiesTable.name,
         departmentName: departmentsTable.name,
+        departmentCode: departmentsTable.code,
       })
       .from(usersTable)
       .leftJoin(facultiesTable, eq(usersTable.facultyId, facultiesTable.id))
       .leftJoin(departmentsTable, eq(usersTable.departmentId, departmentsTable.id))
       .where(eq(usersTable.id, lecturerId as any));
 
+    const enrichedUser = user
+      ? {
+          ...user,
+          customId: formatUserDisplayId({
+            id: user.id,
+            role: user.role,
+            departmentCode: user.departmentCode,
+          }),
+        }
+      : req.lecturerUser;
+
     res.status(200).json({
       status: 'success',
-      user: user || req.lecturerUser,
+      user: enrichedUser,
     });
   } catch (error: any) {
     res.status(500).json({ status: 'error', message: error.message });

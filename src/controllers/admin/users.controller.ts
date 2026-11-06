@@ -14,6 +14,7 @@ import {
 } from '../../db/schema.js';
 import { auditService } from '../../services/admin/auditService.js';
 import type { AdminAuthenticatedRequest } from '../../types/admin.types.js';
+import { formatUserDisplayId } from '../../utils/identifier.js';
 
 export const listUsers = async (
   req: AdminAuthenticatedRequest,
@@ -40,7 +41,10 @@ export const listUsers = async (
           ilike(usersTable.fullName, pattern),
           ilike(usersTable.email, pattern),
           ilike(usersTable.username, pattern),
-          ilike(usersTable.phoneNumber, pattern)
+          ilike(usersTable.phoneNumber, pattern),
+          sql`CAST(${usersTable.id} AS TEXT) ILIKE ${pattern}`,
+          ilike(departmentsTable.code, pattern),
+          ilike(departmentsTable.name, pattern)
         )
       );
     }
@@ -83,6 +87,7 @@ export const listUsers = async (
         facultyName: facultiesTable.name,
         departmentId: usersTable.departmentId,
         departmentName: departmentsTable.name,
+        departmentCode: departmentsTable.code,
         createdAt: usersTable.createdAt,
       })
       .from(usersTable)
@@ -94,7 +99,8 @@ export const listUsers = async (
 
     const countQuery = db
       .select({ count: sql<number>`count(*)`.mapWith(Number) })
-      .from(usersTable);
+      .from(usersTable)
+      .leftJoin(departmentsTable, eq(usersTable.departmentId, departmentsTable.id));
 
     const [users, countResult] = await Promise.all([
       whereClause ? usersQuery.where(whereClause) : usersQuery,
@@ -103,10 +109,20 @@ export const listUsers = async (
 
     const total = countResult[0]?.count || 0;
 
+    const enrichedUsers = users.map((u) => ({
+      ...u,
+      customId: formatUserDisplayId({
+        id: u.id,
+        role: u.role,
+        departmentCode: u.departmentCode,
+        username: u.username,
+      }),
+    }));
+
     res.status(200).json({
       status: 'success',
       data: {
-        users,
+        users: enrichedUsers,
         pagination: {
           page,
           limit,
@@ -154,6 +170,7 @@ export const getUserDetails = async (
         facultyName: facultiesTable.name,
         departmentId: usersTable.departmentId,
         departmentName: departmentsTable.name,
+        departmentCode: departmentsTable.code,
         createdAt: usersTable.createdAt,
       })
       .from(usersTable)
@@ -168,6 +185,13 @@ export const getUserDetails = async (
       });
       return;
     }
+
+    const customId = formatUserDisplayId({
+      id: user.id,
+      role: user.role,
+      departmentCode: user.departmentCode,
+      username: user.username,
+    });
 
     // Additional statistics for this user
     const [quizStats, supportStats] = await Promise.all([
@@ -190,7 +214,10 @@ export const getUserDetails = async (
     res.status(200).json({
       status: 'success',
       data: {
-        user,
+        user: {
+          ...user,
+          customId,
+        },
         statistics: {
           quizzesTaken: quizStats[0]?.totalQuizzes || 0,
           averageScore: quizStats[0]?.averageScore || 0,
@@ -448,4 +475,75 @@ export const updateUserRole = async (
     });
   }
 };
+
+export const updateUserAcademic = async (
+  req: AdminAuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { userId } = req.params;
+    const { facultyId, departmentId, level } = req.body;
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId as any));
+    if (!user) {
+      res.status(404).json({ status: 'fail', message: 'User not found.' });
+      return;
+    }
+
+    const updates: Record<string, any> = {};
+    if (facultyId !== undefined) {
+      if (facultyId) {
+        const [fac] = await db.select().from(facultiesTable).where(eq(facultiesTable.id, facultyId as any));
+        if (!fac) {
+          res.status(400).json({ status: 'fail', message: 'Referenced faculty not found.' });
+          return;
+        }
+      }
+      updates.facultyId = facultyId ? (facultyId as any) : null;
+    }
+
+    if (departmentId !== undefined) {
+      if (departmentId) {
+        const [dept] = await db.select().from(departmentsTable).where(eq(departmentsTable.id, departmentId as any));
+        if (!dept) {
+          res.status(400).json({ status: 'fail', message: 'Referenced department not found.' });
+          return;
+        }
+      }
+      updates.departmentId = departmentId ? (departmentId as any) : null;
+    }
+
+    if (level !== undefined) {
+      updates.level = level ? Number(level) : null;
+    }
+
+    const [updated] = await db
+      .update(usersTable)
+      .set(updates)
+      .where(eq(usersTable.id, userId as any))
+      .returning();
+
+    const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || null;
+    const userAgent = req.headers['user-agent'] || null;
+
+    await auditService.logAdminAction({
+      adminUserId: req.adminUser!.id,
+      action: 'USER_ACADEMIC_UPDATE',
+      resourceType: 'user',
+      resourceId: String(userId),
+      metadata: { updates },
+      ipAddress,
+      userAgent,
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'User academic details updated successfully.',
+      data: { user: updated },
+    });
+  } catch (error: any) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+};
+
 
