@@ -21,6 +21,9 @@ export interface EnvConfig {
   GEMINI_API_KEY: string | undefined;
   GEMINI_MODEL: string;
   GEMINI_TIMEOUT_MS: number;
+  PAYSTACK_SECRET_KEY: string | undefined;
+  PAYSTACK_PUBLIC_KEY: string | undefined;
+  PAYSTACK_WEBHOOK_SECRET: string | undefined;
 }
 
 let validatedEnv: EnvConfig | null = null;
@@ -67,6 +70,9 @@ export function validateEnvironment(): EnvConfig {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim();
   const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash';
   const GEMINI_TIMEOUT_MS = parseInt(process.env.GEMINI_TIMEOUT_MS || '15000', 10);
+  const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY?.trim();
+  const PAYSTACK_PUBLIC_KEY = process.env.PAYSTACK_PUBLIC_KEY?.trim();
+  const PAYSTACK_WEBHOOK_SECRET = process.env.PAYSTACK_WEBHOOK_SECRET?.trim();
 
   const config: EnvConfig = {
     NODE_ENV,
@@ -86,6 +92,9 @@ export function validateEnvironment(): EnvConfig {
     GEMINI_API_KEY,
     GEMINI_MODEL,
     GEMINI_TIMEOUT_MS,
+    PAYSTACK_SECRET_KEY,
+    PAYSTACK_PUBLIC_KEY,
+    PAYSTACK_WEBHOOK_SECRET,
   };
 
   validatedEnv = config;

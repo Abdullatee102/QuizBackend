@@ -2880,6 +2880,299 @@ export type NewCourseDiscussion = typeof courseDiscussionsTable.$inferInsert;
 export type CourseDiscussionReply = typeof courseDiscussionRepliesTable.$inferSelect;
 export type NewCourseDiscussionReply = typeof courseDiscussionRepliesTable.$inferInsert;
 
+// =====================================================
+// BB-05B: PAYMENT CONSTANTS & ENUMS
+// =====================================================
+
+export const PAYMENT_ORDER_STATUS = {
+  PENDING: 'PENDING',
+  PROCESSING: 'PROCESSING',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED',
+  ABANDONED: 'ABANDONED',
+} as const;
+
+export type PaymentOrderStatus = (typeof PAYMENT_ORDER_STATUS)[keyof typeof PAYMENT_ORDER_STATUS];
+
+export const PAYMENT_TRANSACTION_STATUS = {
+  SUCCESS: 'SUCCESS',
+  FAILED: 'FAILED',
+  PENDING: 'PENDING',
+  ABANDONED: 'ABANDONED',
+  REVERSED: 'REVERSED',
+} as const;
+
+export type PaymentTransactionStatus = (typeof PAYMENT_TRANSACTION_STATUS)[keyof typeof PAYMENT_TRANSACTION_STATUS];
+
+export const ENTITLEMENT_STATUS = {
+  ACTIVE: 'ACTIVE',
+  EXPIRED: 'EXPIRED',
+  REVOKED: 'REVOKED',
+  SUSPENDED: 'SUSPENDED',
+} as const;
+
+export type EntitlementStatus = (typeof ENTITLEMENT_STATUS)[keyof typeof ENTITLEMENT_STATUS];
+
+export const WEBHOOK_PROCESSING_STATUS = {
+  PENDING: 'PENDING',
+  PROCESSED: 'PROCESSED',
+  IGNORED: 'IGNORED',
+  FAILED: 'FAILED',
+  DUPLICATE: 'DUPLICATE',
+} as const;
+
+export type WebhookProcessingStatus = (typeof WEBHOOK_PROCESSING_STATUS)[keyof typeof WEBHOOK_PROCESSING_STATUS];
+
+export const PAYMENT_GATEWAY = {
+  PAYSTACK: 'PAYSTACK',
+} as const;
+
+export type PaymentGateway = (typeof PAYMENT_GATEWAY)[keyof typeof PAYMENT_GATEWAY];
+
+// =====================================================
+// PAYMENT ORDERS
+// =====================================================
+
+export const paymentOrdersTable = pgTable(
+  'payment_orders',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'restrict',
+      })
+      .notNull(),
+
+    orderReference: text('order_reference')
+      .notNull()
+      .unique(),
+
+    amount: integer('amount')
+      .notNull(), // Amount in minor units (e.g. kobo: 1000 NGN = 100000)
+
+    currency: text('currency')
+      .default('NGN')
+      .notNull(),
+
+    purpose: text('purpose')
+      .notNull(), // e.g. 'PREMIUM_SUBSCRIPTION', 'COURSE_PACK', 'EXAM_PRACTICE'
+
+    productId: text('product_id')
+      .notNull(), // Server-controlled product catalog identifier
+
+    status: text('status')
+      .default('PENDING')
+      .notNull(), // PaymentOrderStatus
+
+    metadata: jsonb('metadata')
+      .default({})
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    paymentOrdersUserIdx: index('payment_orders_user_idx').on(table.userId),
+    paymentOrdersReferenceIdx: index('payment_orders_reference_idx').on(table.orderReference),
+    paymentOrdersStatusIdx: index('payment_orders_status_idx').on(table.status),
+    paymentOrdersCreatedAtIdx: index('payment_orders_created_at_idx').on(table.createdAt),
+  })
+);
+
+// =====================================================
+// PAYMENT TRANSACTIONS
+// =====================================================
+
+export const paymentTransactionsTable = pgTable(
+  'payment_transactions',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    orderId: uuid('order_id')
+      .references(() => paymentOrdersTable.id, {
+        onDelete: 'restrict',
+      })
+      .notNull(),
+
+    gateway: text('gateway')
+      .default('PAYSTACK')
+      .notNull(),
+
+    gatewayReference: text('gateway_reference')
+      .notNull()
+      .unique(),
+
+    gatewayTransactionId: text('gateway_transaction_id'),
+
+    amount: integer('amount')
+      .notNull(), // Verified amount in minor currency units from gateway
+
+    currency: text('currency')
+      .default('NGN')
+      .notNull(),
+
+    channel: text('channel'), // 'card', 'bank', 'ussd', 'qr', 'bank_transfer', etc.
+
+    status: text('status')
+      .notNull(), // PaymentTransactionStatus
+
+    gatewayResponse: text('gateway_response'),
+
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+
+    metadata: jsonb('metadata')
+      .default({})
+      .notNull(),
+
+    ipAddress: text('ip_address'),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    paymentTransactionsOrderIdx: index('payment_transactions_order_idx').on(table.orderId),
+    paymentTransactionsGatewayRefIdx: index('payment_transactions_gateway_ref_idx').on(table.gatewayReference),
+    paymentTransactionsStatusIdx: index('payment_transactions_status_idx').on(table.status),
+    paymentTransactionsCreatedAtIdx: index('payment_transactions_created_at_idx').on(table.createdAt),
+  })
+);
+
+// =====================================================
+// USER ENTITLEMENTS
+// =====================================================
+
+export const userEntitlementsTable = pgTable(
+  'user_entitlements',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    orderId: uuid('order_id')
+      .references(() => paymentOrdersTable.id, {
+        onDelete: 'set null',
+      }),
+
+    featureKey: text('feature_key')
+      .notNull(), // e.g. 'PREMIUM_QUIZ_PASS', 'EXAM_PRACTICE_BUNDLE', 'VERIFIED_CERTIFICATE'
+
+    status: text('status')
+      .default('ACTIVE')
+      .notNull(), // EntitlementStatus
+
+    startDate: timestamp('start_date', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    expiryDate: timestamp('expiry_date', { withTimezone: true }), // null = lifetime/permanent
+
+    metadata: jsonb('metadata')
+      .default({})
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userEntitlementsUserIdx: index('user_entitlements_user_idx').on(table.userId),
+    userEntitlementsFeatureKeyIdx: index('user_entitlements_feature_key_idx').on(table.featureKey),
+    userEntitlementsStatusIdx: index('user_entitlements_status_idx').on(table.status),
+    userEntitlementsExpiryIdx: index('user_entitlements_expiry_idx').on(table.expiryDate),
+    userEntitlementsUserFeatureUnique: unique('user_entitlements_user_feature_unique').on(table.userId, table.featureKey),
+  })
+);
+
+// =====================================================
+// WEBHOOK EVENT LOGS
+// =====================================================
+
+export const webhookEventsTable = pgTable(
+  'webhook_events',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    gateway: text('gateway')
+      .default('PAYSTACK')
+      .notNull(),
+
+    eventId: text('event_id')
+      .notNull(),
+
+    eventType: text('event_type')
+      .notNull(), // e.g. 'charge.success'
+
+    signature: text('signature')
+      .notNull(),
+
+    signatureValid: boolean('signature_valid')
+      .default(false)
+      .notNull(),
+
+    processingStatus: text('processing_status')
+      .default('PENDING')
+      .notNull(), // WebhookProcessingStatus
+
+    gatewayReference: text('gateway_reference'),
+
+    payload: jsonb('payload')
+      .notNull(),
+
+    error: text('error'),
+
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    webhookEventsGatewayEventUnique: unique('webhook_events_gateway_event_unique').on(table.gateway, table.eventId),
+    webhookEventsGatewayRefIdx: index('webhook_events_gateway_ref_idx').on(table.gatewayReference),
+    webhookEventsStatusIdx: index('webhook_events_status_idx').on(table.processingStatus),
+    webhookEventsCreatedAtIdx: index('webhook_events_created_at_idx').on(table.createdAt),
+  })
+);
+
+// Payment Types
+export type PaymentOrder = typeof paymentOrdersTable.$inferSelect;
+export type NewPaymentOrder = typeof paymentOrdersTable.$inferInsert;
+export type PaymentTransaction = typeof paymentTransactionsTable.$inferSelect;
+export type NewPaymentTransaction = typeof paymentTransactionsTable.$inferInsert;
+export type UserEntitlement = typeof userEntitlementsTable.$inferSelect;
+export type NewUserEntitlement = typeof userEntitlementsTable.$inferInsert;
+export type WebhookEvent = typeof webhookEventsTable.$inferSelect;
+export type NewWebhookEvent = typeof webhookEventsTable.$inferInsert;
+
+
 
 
 

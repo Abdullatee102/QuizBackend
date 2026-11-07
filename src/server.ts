@@ -20,6 +20,7 @@ import adminRoutes from './routes/admin/index.js';
 import feedbackRoutes from './routes/feedback.routes.js';
 import opportunityRoutes from './routes/opportunity.routes.js';
 import lecturerRoutes from './routes/lecturer/index.js';
+import paymentRoutes from './routes/payment.routes.js';
 import { socketService } from './socket/index.js';
 
 // =====================================================
@@ -42,7 +43,14 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: '10mb' }));
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 
 // =====================================================
 // STEP 3: CORS CONFIGURATION
@@ -101,6 +109,7 @@ app.use('/api/feedback', feedbackRoutes);
 app.use('/api/opportunities', opportunityRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/lecturer', lecturerRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // =====================================================
 // STEP 6: HEALTH CHECK ENDPOINTS (/health and /api/health)

@@ -810,6 +810,87 @@ async function runMigration() {
     `);
     console.log('[MIGRATION] Course Announcements & Discussions tables verified (BB-07I)');
 
+    // 25. Core Payment Infrastructure & Database Ledger Tables (BB-05B)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS payment_orders (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        order_reference text NOT NULL UNIQUE,
+        amount integer NOT NULL,
+        currency text NOT NULL DEFAULT 'NGN',
+        purpose text NOT NULL,
+        product_id text NOT NULL,
+        status text NOT NULL DEFAULT 'PENDING',
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS payment_orders_user_idx ON payment_orders (user_id);
+      CREATE INDEX IF NOT EXISTS payment_orders_reference_idx ON payment_orders (order_reference);
+      CREATE INDEX IF NOT EXISTS payment_orders_status_idx ON payment_orders (status);
+      CREATE INDEX IF NOT EXISTS payment_orders_created_at_idx ON payment_orders (created_at);
+
+      CREATE TABLE IF NOT EXISTS payment_transactions (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        order_id uuid NOT NULL REFERENCES payment_orders(id) ON DELETE RESTRICT,
+        gateway text NOT NULL DEFAULT 'PAYSTACK',
+        gateway_reference text NOT NULL UNIQUE,
+        gateway_transaction_id text,
+        amount integer NOT NULL,
+        currency text NOT NULL DEFAULT 'NGN',
+        channel text,
+        status text NOT NULL,
+        gateway_response text,
+        paid_at timestamp with time zone,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        ip_address text,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS payment_transactions_order_idx ON payment_transactions (order_id);
+      CREATE INDEX IF NOT EXISTS payment_transactions_gateway_ref_idx ON payment_transactions (gateway_reference);
+      CREATE INDEX IF NOT EXISTS payment_transactions_status_idx ON payment_transactions (status);
+      CREATE INDEX IF NOT EXISTS payment_transactions_created_at_idx ON payment_transactions (created_at);
+
+      CREATE TABLE IF NOT EXISTS user_entitlements (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        order_id uuid REFERENCES payment_orders(id) ON DELETE SET NULL,
+        feature_key text NOT NULL,
+        status text NOT NULL DEFAULT 'ACTIVE',
+        start_date timestamp with time zone NOT NULL DEFAULT NOW(),
+        expiry_date timestamp with time zone,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        CONSTRAINT user_entitlements_user_feature_unique UNIQUE (user_id, feature_key)
+      );
+      CREATE INDEX IF NOT EXISTS user_entitlements_user_idx ON user_entitlements (user_id);
+      CREATE INDEX IF NOT EXISTS user_entitlements_feature_key_idx ON user_entitlements (feature_key);
+      CREATE INDEX IF NOT EXISTS user_entitlements_status_idx ON user_entitlements (status);
+      CREATE INDEX IF NOT EXISTS user_entitlements_expiry_idx ON user_entitlements (expiry_date);
+
+      CREATE TABLE IF NOT EXISTS webhook_events (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        gateway text NOT NULL DEFAULT 'PAYSTACK',
+        event_id text NOT NULL,
+        event_type text NOT NULL,
+        signature text NOT NULL,
+        signature_valid boolean NOT NULL DEFAULT false,
+        processing_status text NOT NULL DEFAULT 'PENDING',
+        gateway_reference text,
+        payload jsonb NOT NULL,
+        error text,
+        processed_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        CONSTRAINT webhook_events_gateway_event_unique UNIQUE (gateway, event_id)
+      );
+      CREATE INDEX IF NOT EXISTS webhook_events_gateway_ref_idx ON webhook_events (gateway_reference);
+      CREATE INDEX IF NOT EXISTS webhook_events_status_idx ON webhook_events (processing_status);
+      CREATE INDEX IF NOT EXISTS webhook_events_created_at_idx ON webhook_events (created_at);
+    `);
+    console.log('[MIGRATION] Payment Infrastructure tables verified (BB-05B)');
+
 
 
 
