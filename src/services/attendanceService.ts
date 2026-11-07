@@ -24,6 +24,40 @@ import type {
 } from '../schemas/attendance.schemas.js';
 import logger from '../config/logger.js';
 
+/**
+ * Helper to determine if an attendance session's stipulated time has expired.
+ */
+export function isSessionTimeExpired(sessionDate: Date | string, endTime?: string | null): boolean {
+  if (!endTime) return false;
+  try {
+    const sDate = new Date(sessionDate);
+    if (isNaN(sDate.getTime())) return false;
+
+    // Check if endTime is full ISO format
+    if (endTime.includes('T') || (endTime.includes('-') && endTime.length > 8)) {
+      const parsed = new Date(endTime);
+      if (!isNaN(parsed.getTime())) {
+        return Date.now() > parsed.getTime();
+      }
+    }
+
+    // Parse HH:mm from endTime string
+    const parts = endTime.trim().split(':');
+    if (parts.length >= 2 && parts[0] !== undefined && parts[1] !== undefined) {
+      const hours = parseInt(parts[0], 10);
+      const minutes = parseInt(parts[1], 10);
+      if (!isNaN(hours) && !isNaN(minutes)) {
+        const deadline = new Date(sDate);
+        deadline.setHours(hours, minutes, 59, 999);
+        return Date.now() > deadline.getTime();
+      }
+    }
+  } catch (err) {
+    logger.warn(`[ATTENDANCE] Error calculating session expiration: ${err}`);
+  }
+  return false;
+}
+
 export const attendanceService = {
   /**
    * Create an attendance session for an authorized course offering.
@@ -100,6 +134,47 @@ export const attendanceService = {
       .set(updatePayload)
       .where(eq(attendanceSessionsTable.id, sessionId as any))
       .returning();
+
+    // If session is closed, automatically record all unmarked enrolled students as ABSENT
+    if (input.status === ATTENDANCE_SESSION_STATUSES.CLOSED) {
+      try {
+        const enrolled = await db
+          .select({ studentId: studentEnrollmentsTable.studentId })
+          .from(studentEnrollmentsTable)
+          .where(
+            and(
+              eq(studentEnrollmentsTable.offeringId, offeringId as any),
+              eq(studentEnrollmentsTable.status, 'ENROLLED')
+            )
+          );
+
+        const existingRecords = await db
+          .select({ studentId: attendanceRecordsTable.studentId })
+          .from(attendanceRecordsTable)
+          .where(eq(attendanceRecordsTable.sessionId, sessionId as any));
+
+        const markedSet = new Set(existingRecords.map((r) => r.studentId));
+        const unmarked = enrolled.filter((e) => !markedSet.has(e.studentId));
+
+        if (unmarked.length > 0) {
+          await db.insert(attendanceRecordsTable).values(
+            unmarked.map((u) => ({
+              sessionId: sessionId as any,
+              studentId: u.studentId as any,
+              status: ATTENDANCE_RECORD_STATUSES.ABSENT,
+              markedBy: lecturerId as any,
+              markedAt: new Date(),
+              remarks: 'Auto-recorded as ABSENT (did not check in before session was closed)',
+            }))
+          );
+          logger.info(
+            `[ATTENDANCE] Auto-recorded ${unmarked.length} unmarked students as ABSENT on session close for session ${sessionId}`
+          );
+        }
+      } catch (err) {
+        logger.error(`[ATTENDANCE] Error populating absent records on session close: ${err}`);
+      }
+    }
 
     return updated;
   },
@@ -281,9 +356,19 @@ export const attendanceService = {
       recordsMap.set(rec.studentId, rec);
     }
 
+    const isClosedOrExpired =
+      session.status === ATTENDANCE_SESSION_STATUSES.CLOSED ||
+      isSessionTimeExpired(session.sessionDate, session.endTime);
+
     // Merge student roster with attendance status
     const roster = enrolledStudents.map((st) => {
       const record = recordsMap.get(st.studentId);
+      const computedStatus = record?.status
+        ? (record.status as AttendanceRecordStatus)
+        : isClosedOrExpired
+        ? (ATTENDANCE_RECORD_STATUSES.ABSENT as AttendanceRecordStatus)
+        : null;
+
       return {
         studentId: st.studentId,
         fullName: st.fullName,
@@ -291,22 +376,33 @@ export const attendanceService = {
         email: st.email,
         level: st.level,
         departmentName: st.departmentName,
-        isMarked: Boolean(record),
+        isMarked: Boolean(record) || isClosedOrExpired,
         recordId: record?.id || null,
-        status: (record?.status as AttendanceRecordStatus) || null,
-        remarks: record?.remarks || null,
+        status: computedStatus,
+        remarks:
+          record?.remarks ||
+          (isClosedOrExpired && !record
+            ? 'Did not check in within stipulated time (ABSENT)'
+            : null),
         markedAt: record?.markedAt || null,
         updatedAt: record?.updatedAt || null,
       };
     });
 
+    const explicitPresent = recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.PRESENT).length;
+    const explicitLate = recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.LATE).length;
+    const explicitExcused = recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.EXCUSED).length;
+    const explicitAbsent = recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.ABSENT).length;
+    const unrecordedCount = Math.max(0, enrolledStudents.length - recordedAttendance.length);
+    const absentCount = isClosedOrExpired ? explicitAbsent + unrecordedCount : explicitAbsent;
+
     const stats = {
       enrolledTotal: enrolledStudents.length,
-      markedTotal: recordedAttendance.length,
-      present: recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.PRESENT).length,
-      absent: recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.ABSENT).length,
-      late: recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.LATE).length,
-      excused: recordedAttendance.filter((r) => r.status === ATTENDANCE_RECORD_STATUSES.EXCUSED).length,
+      markedTotal: isClosedOrExpired ? enrolledStudents.length : recordedAttendance.length,
+      present: explicitPresent,
+      absent: absentCount,
+      late: explicitLate,
+      excused: explicitExcused,
     };
 
     return {
@@ -781,6 +877,12 @@ export const attendanceService = {
 
     const sessionHistory = sessions.map((s) => {
       const record = recordsMap.get(s.id);
+      const isExpired = isSessionTimeExpired(s.sessionDate, s.endTime);
+      const effectiveSessionStatus =
+        s.status === ATTENDANCE_SESSION_STATUSES.OPEN && isExpired
+          ? ATTENDANCE_SESSION_STATUSES.CLOSED
+          : s.status;
+
       return {
         sessionId: s.id,
         title: s.title,
@@ -788,8 +890,13 @@ export const attendanceService = {
         sessionDate: s.sessionDate,
         startTime: s.startTime,
         endTime: s.endTime,
+        sessionStatus: effectiveSessionStatus,
         status: record?.status || ATTENDANCE_RECORD_STATUSES.ABSENT,
-        remarks: record?.remarks || null,
+        remarks:
+          record?.remarks ||
+          (effectiveSessionStatus === ATTENDANCE_SESSION_STATUSES.CLOSED && !record
+            ? 'Did not check in within stipulated time (ABSENT)'
+            : null),
         markedAt: record?.markedAt || null,
       };
     });
@@ -814,6 +921,134 @@ export const attendanceService = {
         attendancePercentage,
       },
       history: sessionHistory,
+    };
+  },
+
+  /**
+   * Enrolled student marks their own attendance for an OPEN session.
+   */
+  studentSelfMarkAttendance: async (
+    studentId: string,
+    offeringId: string,
+    sessionId: string
+  ) => {
+    // 1. Verify student is actively enrolled in offering
+    const [enrollment] = await db
+      .select({ id: studentEnrollmentsTable.id })
+      .from(studentEnrollmentsTable)
+      .where(
+        and(
+          eq(studentEnrollmentsTable.studentId, studentId as any),
+          eq(studentEnrollmentsTable.offeringId, offeringId as any),
+          eq(studentEnrollmentsTable.status, 'ENROLLED')
+        )
+      );
+
+    if (!enrollment) {
+      throw new Error('Forbidden. You are not actively enrolled in this course offering.');
+    }
+
+    // 2. Verify attendance session exists, belongs to offering, and is OPEN
+    const [session] = await db
+      .select()
+      .from(attendanceSessionsTable)
+      .where(
+        and(
+          eq(attendanceSessionsTable.id, sessionId as any),
+          eq(attendanceSessionsTable.offeringId, offeringId as any)
+        )
+      );
+
+    if (!session) {
+      throw new Error('Attendance session not found for this course offering.');
+    }
+
+    if (session.status !== ATTENDANCE_SESSION_STATUSES.OPEN) {
+      throw new Error(
+        `Attendance session is ${session.status.toLowerCase()}. You can only mark attendance while the session is OPEN.`
+      );
+    }
+
+    // Verify if stipulated endTime defined by lecturer has passed
+    if (session.endTime && isSessionTimeExpired(session.sessionDate, session.endTime)) {
+      // Auto-close expired session in background
+      await db
+        .update(attendanceSessionsTable)
+        .set({ status: ATTENDANCE_SESSION_STATUSES.CLOSED, updatedAt: new Date() })
+        .where(eq(attendanceSessionsTable.id, sessionId as any));
+
+      // Record this student as ABSENT
+      await db
+        .insert(attendanceRecordsTable)
+        .values({
+          sessionId: sessionId as any,
+          studentId: studentId as any,
+          status: ATTENDANCE_RECORD_STATUSES.ABSENT,
+          markedBy: studentId as any,
+          markedAt: new Date(),
+          remarks: `Late check-in attempt after stipulated end time (${session.endTime}) — Marked ABSENT`,
+        })
+        .onConflictDoNothing();
+
+      throw new Error(
+        `Attendance check-in deadline has passed. The stipulated time ended at ${session.endTime}. You are recorded as ABSENT.`
+      );
+    }
+
+    // 3. Find or create attendance record
+    const [existingRecord] = await db
+      .select()
+      .from(attendanceRecordsTable)
+      .where(
+        and(
+          eq(attendanceRecordsTable.sessionId, sessionId as any),
+          eq(attendanceRecordsTable.studentId, studentId as any)
+        )
+      );
+
+    let record;
+    if (existingRecord) {
+      if (existingRecord.status === ATTENDANCE_RECORD_STATUSES.PRESENT) {
+        return {
+          record: existingRecord,
+          alreadyMarked: true,
+          message: 'Attendance already marked as Present.',
+        };
+      }
+
+      [record] = await db
+        .update(attendanceRecordsTable)
+        .set({
+          status: ATTENDANCE_RECORD_STATUSES.PRESENT,
+          markedBy: studentId as any,
+          markedAt: new Date(),
+          remarks: 'Self-marked attendance via student mobile app',
+          updatedAt: new Date(),
+        })
+        .where(eq(attendanceRecordsTable.id, existingRecord.id))
+        .returning();
+    } else {
+      [record] = await db
+        .insert(attendanceRecordsTable)
+        .values({
+          sessionId: sessionId as any,
+          studentId: studentId as any,
+          status: ATTENDANCE_RECORD_STATUSES.PRESENT,
+          markedBy: studentId as any,
+          markedAt: new Date(),
+          remarks: 'Self-marked attendance via student mobile app',
+        })
+        .returning();
+    }
+
+    logger.info(
+      `[ATTENDANCE_SELF_MARK] Student ${studentId} marked attendance PRESENT for session ${sessionId} in offering ${offeringId}`
+    );
+
+    return {
+      record,
+      alreadyMarked: false,
+      message: 'Attendance successfully marked as Present!',
     };
   },
 };

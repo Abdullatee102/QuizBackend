@@ -54,7 +54,10 @@ import {
   submitAttemptHandler,
   getStudentPublishedResultHandler,
 } from '../controllers/student/assessmentAttempts.controller.js';
-import { getStudentSelfAttendanceHandler } from '../controllers/student/attendance.controller.js';
+import {
+  getStudentSelfAttendanceHandler,
+  studentSelfMarkAttendanceHandler,
+} from '../controllers/student/attendance.controller.js';
 import {
   listStudentMaterialsHandler,
   downloadStudentMaterialHandler,
@@ -384,11 +387,21 @@ router.get(
   getStudentPublishedResultHandler
 );
 
-// Student Attendance (BB-07G)
+// Student Attendance (BB-07G & Self-Marking)
 router.get(
   '/offerings/:offeringId/attendance',
   protect,
   getStudentSelfAttendanceHandler
+);
+router.post(
+  '/offerings/:offeringId/attendance/:sessionId/check-in',
+  protect,
+  studentSelfMarkAttendanceHandler
+);
+router.post(
+  '/offerings/:offeringId/attendance/:sessionId/mark',
+  protect,
+  studentSelfMarkAttendanceHandler
 );
 
 // Course Materials (BB-07H)
