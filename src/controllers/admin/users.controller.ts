@@ -35,7 +35,10 @@ export const listUsers = async (
     const conditions = [];
 
     if (search && typeof search === 'string') {
-      const pattern = `%${search.trim()}%`;
+      const trimmed = search.trim();
+      const pattern = `%${trimmed}%`;
+      const hexMatch = trimmed.match(/([A-Fa-f0-9]{4,})$/);
+      const hexPattern = hexMatch ? `%${hexMatch[1]}%` : pattern;
       conditions.push(
         or(
           ilike(usersTable.fullName, pattern),
@@ -43,6 +46,7 @@ export const listUsers = async (
           ilike(usersTable.username, pattern),
           ilike(usersTable.phoneNumber, pattern),
           sql`CAST(${usersTable.id} AS TEXT) ILIKE ${pattern}`,
+          sql`CAST(${usersTable.id} AS TEXT) ILIKE ${hexPattern}`,
           ilike(departmentsTable.code, pattern),
           ilike(departmentsTable.name, pattern)
         )

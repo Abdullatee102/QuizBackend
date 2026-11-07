@@ -129,13 +129,18 @@ export const adminLecturerService = {
     const conditions = [eq(usersTable.role, USER_ROLES.LECTURER)];
 
     if (filters.search && typeof filters.search === 'string') {
-      const pattern = `%${filters.search.trim()}%`;
+      const trimmed = filters.search.trim();
+      const pattern = `%${trimmed}%`;
+      const hexMatch = trimmed.match(/([A-Fa-f0-9]{4,})$/);
+      const hexPattern = hexMatch ? `%${hexMatch[1]}%` : pattern;
+
       conditions.push(
         or(
           ilike(usersTable.fullName, pattern),
           ilike(usersTable.email, pattern),
           ilike(usersTable.username, pattern),
           sql`CAST(${usersTable.id} AS TEXT) ILIKE ${pattern}`,
+          sql`CAST(${usersTable.id} AS TEXT) ILIKE ${hexPattern}`,
           ilike(departmentsTable.code, pattern),
           ilike(departmentsTable.name, pattern)
         )!
