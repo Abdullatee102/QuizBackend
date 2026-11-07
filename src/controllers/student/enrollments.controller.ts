@@ -194,6 +194,14 @@ export const getAvailableCourseOfferingsHandler = async (
       return;
     }
 
+    if (student.role !== 'STUDENT') {
+      res.status(403).json({
+        status: 'fail',
+        message: 'Course offerings are only accessible to student accounts.',
+      });
+      return;
+    }
+
     const conditions = [
       eq(courseOfferingsTable.status, 'ACTIVE'),
       eq(coursesTable.isActive, true),
