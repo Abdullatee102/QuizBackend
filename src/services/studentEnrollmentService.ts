@@ -321,9 +321,25 @@ export const studentEnrollmentService = {
   },
 
   /**
-   * Retrieves all course enrolments for a student.
+   * Retrieves active course enrolments for a student.
+   * By default, returns only currently active 'ENROLLED' courses.
    */
-  getStudentEnrollments: async (studentId: string) => {
+  getStudentEnrollments: async (
+    studentId: string,
+    options?: { status?: string | undefined }
+  ) => {
+    const conditions = [
+      eq(studentEnrollmentsTable.studentId, studentId as any),
+      eq(coursesTable.isActive, true),
+    ];
+
+    if (options?.status && options.status !== 'ALL') {
+      conditions.push(eq(studentEnrollmentsTable.status, options.status.trim().toUpperCase() as any));
+    } else if (!options?.status) {
+      // By default, filter out DROPPED or historical records
+      conditions.push(eq(studentEnrollmentsTable.status, 'ENROLLED'));
+    }
+
     return await db
       .select({
         enrollmentId: studentEnrollmentsTable.id,
@@ -344,12 +360,7 @@ export const studentEnrollmentService = {
       .innerJoin(courseOfferingsTable, eq(studentEnrollmentsTable.offeringId, courseOfferingsTable.id))
       .innerJoin(coursesTable, eq(courseOfferingsTable.courseId, coursesTable.id))
       .innerJoin(departmentsTable, eq(coursesTable.departmentId, departmentsTable.id))
-      .where(
-        and(
-          eq(studentEnrollmentsTable.studentId, studentId as any),
-          eq(coursesTable.isActive, true)
-        )
-      )
+      .where(and(...conditions))
       .orderBy(desc(studentEnrollmentsTable.enrolledAt));
   },
 };

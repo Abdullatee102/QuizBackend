@@ -24,7 +24,10 @@ export const getStudentEnrollmentsHandler = async (
       return;
     }
 
-    const enrollments = await studentEnrollmentService.getStudentEnrollments(String(studentId));
+    const statusQuery = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const enrollments = await studentEnrollmentService.getStudentEnrollments(String(studentId), {
+      status: statusQuery,
+    });
 
     res.status(200).json({
       status: 'success',
