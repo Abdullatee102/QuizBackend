@@ -891,6 +891,129 @@ async function runMigration() {
     `);
     console.log('[MIGRATION] Payment Infrastructure tables verified (BB-05B)');
 
+    // 27. Premium Monetization, Semester Passes & Entitlement Management (BB-05C)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS payment_products (
+        id text PRIMARY KEY,
+        title text NOT NULL,
+        description text NOT NULL,
+        category text NOT NULL,
+        amount integer NOT NULL,
+        currency text NOT NULL DEFAULT 'NGN',
+        purpose text NOT NULL,
+        feature_key text NOT NULL,
+        duration_days integer,
+        academic_session text,
+        semester text,
+        benefits jsonb NOT NULL DEFAULT '[]'::jsonb,
+        is_active boolean NOT NULL DEFAULT true,
+        is_test_product boolean NOT NULL DEFAULT true,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+        updated_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS payment_products_category_idx ON payment_products (category);
+      CREATE INDEX IF NOT EXISTS payment_products_active_idx ON payment_products (is_active);
+      CREATE INDEX IF NOT EXISTS payment_products_session_semester_idx ON payment_products (academic_session, semester);
+
+      -- Extend user_entitlements for semester specificity and multi-pass support
+      ALTER TABLE user_entitlements ADD COLUMN IF NOT EXISTS product_id text;
+      ALTER TABLE user_entitlements ADD COLUMN IF NOT EXISTS academic_session text;
+      ALTER TABLE user_entitlements ADD COLUMN IF NOT EXISTS semester text;
+
+      -- Drop legacy single-pass constraint that prevented renewals or multi-semester passes
+      ALTER TABLE user_entitlements DROP CONSTRAINT IF EXISTS user_entitlements_user_feature_unique;
+
+      CREATE INDEX IF NOT EXISTS user_entitlements_product_idx ON user_entitlements (product_id);
+      CREATE INDEX IF NOT EXISTS user_entitlements_user_feature_status_idx ON user_entitlements (user_id, feature_key, status);
+      CREATE INDEX IF NOT EXISTS user_entitlements_session_semester_idx ON user_entitlements (academic_session, semester);
+
+      -- Seed authoritative products if table is currently empty
+      INSERT INTO payment_products (id, title, description, category, amount, currency, purpose, feature_key, duration_days, academic_session, semester, benefits, is_active, is_test_product)
+      VALUES
+        (
+          'SEMESTER_PASS_HARMATTAN_2026',
+          'Brain Buzz Semester Pass (Harmattan 2026/2027)',
+          'Full semester premium access to AI tutoring, timed mock exams, and advanced cognitive analytics for Harmattan semester.',
+          'SEMESTER_PASS',
+          150000,
+          'NGN',
+          'SEMESTER_SUBSCRIPTION',
+          'SEMESTER_PREMIUM_ACCESS',
+          120,
+          '2026/2027',
+          'harmattan',
+          '["Full CBT & Theory Mock Exam Simulator", "Deep Multi-Step AI Concept Breakdown", "Cognitive Weakness Analysis & Heatmaps", "Curated Exam Revision Resources", "Priority Study Pack Access"]'::jsonb,
+          true,
+          true
+        ),
+        (
+          'SEMESTER_PASS_RAIN_2026',
+          'Brain Buzz Semester Pass (Rain 2026/2027)',
+          'Full semester premium access to AI tutoring, timed mock exams, and advanced cognitive analytics for Rain semester.',
+          'SEMESTER_PASS',
+          150000,
+          'NGN',
+          'SEMESTER_SUBSCRIPTION',
+          'SEMESTER_PREMIUM_ACCESS',
+          120,
+          '2026/2027',
+          'rain',
+          '["Full CBT & Theory Mock Exam Simulator", "Deep Multi-Step AI Concept Breakdown", "Cognitive Weakness Analysis & Heatmaps", "Curated Exam Revision Resources", "Priority Study Pack Access"]'::jsonb,
+          true,
+          true
+        ),
+        (
+          'EXAM_PREP_PASS_30',
+          'Examination Sprint Pass (30 Days)',
+          'Intensive 30-day examination preparation pass for revision seasons and departmental mock trials.',
+          'EXAM_PREP',
+          80000,
+          'NGN',
+          'EXAM_PRACTICE',
+          'EXAM_PREP_ACCESS',
+          30,
+          NULL,
+          NULL,
+          '["Full Timed CBT Mock Trials", "Countdown Exam Simulation", "Post-Mock Performance Analytics", "High-Yield Question Revisions"]'::jsonb,
+          true,
+          true
+        ),
+        (
+          'EXAM_PREP_PASS_60',
+          'Examination Preparation Pack (60 Days)',
+          'Extended 60-day examination preparation pass for comprehensive midterm and final exam readiness.',
+          'EXAM_PREP',
+          120000,
+          'NGN',
+          'EXAM_PRACTICE',
+          'EXAM_PREP_ACCESS',
+          60,
+          NULL,
+          NULL,
+          '["60-Day Unlimited Timed Mock Trials", "Full Diagnostic Exam Analytics", "AI Model Answer Comparisons", "Exam Readiness Scoring"]'::jsonb,
+          true,
+          true
+        ),
+        (
+          'AI_TUTOR_BOOST_100',
+          'AI Explanation & Tutoring Pack',
+          '100 on-demand AI explanations and concept breakdowns for difficult practice problems across any course.',
+          'OPTIONAL_PURCHASE',
+          30000,
+          'NGN',
+          'AI_TUTORING',
+          'AI_EXPLANATIONS',
+          60,
+          NULL,
+          NULL,
+          '["100 Deep AI Step-by-Step Problem Breakdowns", "Theory Sample Answer Explanations", "Instant Concept Clarification"]'::jsonb,
+          true,
+          true
+        )
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    console.log('[MIGRATION] Premium Products & Extended Entitlements schema verified (BB-05C)');
+
 
 
 

@@ -7,8 +7,18 @@ dotenv.config();
 
 const { Pool } = pkg;
 
+import dns from 'node:dns';
+dns.setDefaultResultOrder('ipv4first');
+
 const isProduction = process.env.NODE_ENV === 'production';
-const databaseUrl = process.env.DATABASE_URL;
+const rawDatabaseUrl = process.env.DATABASE_URL;
+// Strip channel_binding=require which causes TLS socket drops in Node pg client
+const databaseUrl = rawDatabaseUrl
+  ? rawDatabaseUrl
+      .replace('&channel_binding=require', '')
+      .replace('channel_binding=require&', '')
+      .replace('?channel_binding=require', '?')
+  : rawDatabaseUrl;
 
 // Configure connection pool with robust cloud-ready defaults
 export const pool = new Pool({

@@ -221,20 +221,59 @@ export class PaystackGateway implements IPaymentGateway {
 
   /**
    * Cryptographically verify the webhook payload signature using HMAC-SHA512.
+   * Supports both legacy Paystack HMAC-SHA512 (via PAYSTACK_SECRET_KEY)
+   * and the newer Paystack-Signature mechanism (via PAYSTACK_WEBHOOK_SECRET if configured).
    * Utilizes timingSafeEqual to prevent timing attacks.
    */
   verifyWebhookSignature(rawBody: string | Buffer, signature: string): boolean {
-    if (!this.secretKey || !signature) {
-      logger.warn('[PAYSTACK WEBHOOK] Missing secret key or signature header for verification.');
+    const signingKey = this.secretKey || process.env.PAYSTACK_WEBHOOK_SECRET || '';
+    if (!signingKey || !signature) {
+      logger.warn('[PAYSTACK WEBHOOK] Missing signing key or signature header for verification.');
       return false;
     }
 
     try {
-      const hmac = crypto.createHmac('sha512', this.secretKey);
+      // Check for newer Paystack-Signature format (e.g. t=1612345678,v1=abcdef...)
+      if (signature.includes('t=') && signature.includes('v1=')) {
+        const timestampMatch = signature.match(/t=([0-9]+)/);
+        const hashMatch = signature.match(/v1=([a-fA-F0-9]+)/);
+
+        const timestamp = timestampMatch?.[1];
+        const receivedHash = hashMatch?.[1];
+
+        if (!timestamp || !receivedHash) {
+          logger.warn('[PAYSTACK WEBHOOK] Malformed timestamped signature header components.');
+          return false;
+        }
+
+        // Optional timestamp replay prevention (reject if older than 10 minutes)
+        const eventTime = parseInt(timestamp, 10);
+        const currentTime = Math.floor(Date.now() / 1000);
+        if (Math.abs(currentTime - eventTime) > 600) {
+          logger.warn(`[PAYSTACK WEBHOOK] Signature timestamp drifted beyond 600 seconds: ${eventTime} vs ${currentTime}`);
+          return false;
+        }
+
+        const payloadToSign = `${timestamp}.${typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8')}`;
+        const hmac = crypto.createHmac('sha512', signingKey);
+        const computedHash = hmac.update(payloadToSign).digest('hex');
+
+        const computedBuffer = Buffer.from(computedHash, 'hex');
+        const signatureBuffer = Buffer.from(receivedHash, 'hex');
+
+        if (computedBuffer.length !== signatureBuffer.length) {
+          return false;
+        }
+
+        return crypto.timingSafeEqual(computedBuffer, signatureBuffer);
+      }
+
+      // Standard legacy HMAC-SHA512 hex signature verification
+      const hmac = crypto.createHmac('sha512', signingKey);
       const computedHash = hmac.update(rawBody).digest('hex');
 
       const computedBuffer = Buffer.from(computedHash, 'hex');
-      const signatureBuffer = Buffer.from(signature, 'hex');
+      const signatureBuffer = Buffer.from(signature.trim(), 'hex');
 
       if (computedBuffer.length !== signatureBuffer.length) {
         return false;

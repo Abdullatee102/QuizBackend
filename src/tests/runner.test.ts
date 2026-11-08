@@ -26,6 +26,8 @@ import './announcements.test.js';
 import './bulkQuestionAndPaper.test.js';
 import './studentEnrollmentWorkflow.test.js';
 import './payment.test.js';
+import './paystackWebhook.test.js';
+import './premiumEntitlements.test.js';
 
 after(async () => {
   try {

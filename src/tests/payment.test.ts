@@ -3,6 +3,9 @@
  * Brain Buzz — Automated Payment & Entitlement Verification
  */
 
+import dns from 'node:dns';
+dns.setDefaultResultOrder('ipv4first');
+
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import crypto from 'node:crypto';
@@ -140,7 +143,7 @@ describe('BB-05B: Core Payment Infrastructure & Database Ledger Suite', () => {
         status: 'ACTIVE',
       } as any)
       .returning();
-    studentAId = String(userA.id);
+    studentAId = String(userA!.id);
 
     // Create Test Student B (for IDOR verification)
     const [userB] = await db
@@ -153,7 +156,7 @@ describe('BB-05B: Core Payment Infrastructure & Database Ledger Suite', () => {
         status: 'ACTIVE',
       } as any)
       .returning();
-    studentBId = String(userB.id);
+    studentBId = String(userB!.id);
 
     // Create Test Admin User
     const [userAdmin] = await db
@@ -166,7 +169,7 @@ describe('BB-05B: Core Payment Infrastructure & Database Ledger Suite', () => {
         status: 'ACTIVE',
       } as any)
       .returning();
-    adminId = String(userAdmin.id);
+    adminId = String(userAdmin!.id);
   });
 
   after(async () => {

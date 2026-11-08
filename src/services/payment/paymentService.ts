@@ -23,6 +23,7 @@ import {
 import logger from '../../config/logger.js';
 import type { IPaymentGateway, PaymentProduct } from './types.js';
 import { getProductById } from './products.js';
+import { entitlementService } from './entitlementService.js';
 
 export class PaymentService {
   private gateway: IPaymentGateway;
@@ -101,6 +102,24 @@ export class PaymentService {
       throw new Error(`Invalid or unrecognized product ID: "${productId}".`);
     }
 
+    if (product.isActive === false) {
+      throw new Error(`Product "${product.title}" is currently disabled and unavailable for purchase.`);
+    }
+
+    // Duplicate purchase protection for active Semester Passes
+    if (product.category === 'SEMESTER_PASS' && product.academicSession && product.semester) {
+      const alreadyActive = await entitlementService.hasActiveSemesterPass(
+        userId,
+        product.academicSession,
+        product.semester
+      );
+      if (alreadyActive) {
+        throw new Error(
+          `You already hold an active Brain Buzz Semester Pass for ${product.academicSession} (${product.semester}). Duplicate purchase is not permitted.`
+        );
+      }
+    }
+
     // 3. Generate unique order reference
     const orderReference = this.generateOrderReference();
 
@@ -117,8 +136,12 @@ export class PaymentService {
         status: 'PENDING',
         metadata: {
           productTitle: product.title,
+          category: product.category,
           featureKey: product.featureKey,
           durationDays: product.durationDays,
+          academicSession: product.academicSession || null,
+          semester: product.semester || null,
+          benefits: product.benefits || [],
           userEmail: user.email,
           ...(clientMetadata || {}),
         },
@@ -416,65 +439,27 @@ export class PaymentService {
         throw new Error(`Failed to record transaction for order ${order.id}`);
       }
 
-      // c. Calculate Entitlement Expiry (supporting stackable extensions)
-      let newExpiryDate: Date | null = null;
+      // c. Authoritative Entitlement Provisioning via Entitlement Engine
+      const effectiveProduct = product || {
+        id: order.productId,
+        title: (order.metadata as any)?.productTitle || 'Premium Access',
+        description: '',
+        category: (order.metadata as any)?.category || 'SEMESTER_PASS',
+        amount: order.amount,
+        currency: order.currency,
+        purpose: order.purpose,
+        featureKey: (order.metadata as any)?.featureKey || featureKey,
+        durationDays: (order.metadata as any)?.durationDays ?? durationDays,
+        academicSession: (order.metadata as any)?.academicSession || null,
+        semester: (order.metadata as any)?.semester || null,
+        benefits: (order.metadata as any)?.benefits || [],
+      };
 
-      if (durationDays !== null && durationDays > 0) {
-        // Check for existing active entitlement
-        const [existingEntitlement] = await tx
-          .select()
-          .from(userEntitlementsTable)
-          .where(
-            and(
-              eq(userEntitlementsTable.userId, order.userId),
-              eq(userEntitlementsTable.featureKey, featureKey)
-            )
-          );
-
-        const now = new Date();
-        const baseDate =
-          existingEntitlement?.expiryDate && existingEntitlement.expiryDate > now
-            ? existingEntitlement.expiryDate
-            : now;
-
-        newExpiryDate = new Date(baseDate.getTime() + durationDays * 24 * 60 * 60 * 1000);
-      }
-
-      // d. Provision or Update Entitlement
-      const [entitlement] = await tx
-        .insert(userEntitlementsTable)
-        .values({
-          userId: order.userId,
-          orderId: order.id,
-          featureKey,
-          status: 'ACTIVE',
-          startDate: new Date(),
-          expiryDate: newExpiryDate,
-          metadata: {
-            productId: order.productId,
-            orderReference: order.orderReference,
-            grantedAt: new Date().toISOString(),
-          },
-        })
-        .onConflictDoUpdate({
-          target: [userEntitlementsTable.userId, userEntitlementsTable.featureKey],
-          set: {
-            orderId: order.id,
-            status: 'ACTIVE',
-            expiryDate: newExpiryDate,
-            updatedAt: new Date(),
-            metadata: {
-              productId: order.productId,
-              orderReference: order.orderReference,
-              lastExtendedAt: new Date().toISOString(),
-            },
-          },
-        })
-        .returning();
-
-      if (!entitlement) {
-        throw new Error(`Failed to provision entitlement for order ${order.id}`);
-      }
+      const entitlement = await entitlementService.grantEntitlementForVerifiedOrder(
+        order,
+        effectiveProduct,
+        tx
+      );
 
       // e. Immutable Audit Log
       await tx.insert(auditLogsTable).values({
@@ -487,12 +472,12 @@ export class PaymentService {
           amount: verifyResult.amount,
           currency: verifyResult.currency,
           featureKey,
-          expiryDate: newExpiryDate?.toISOString() || null,
+          expiryDate: entitlement.expiryDate ? entitlement.expiryDate.toISOString() : null,
         },
       });
 
       logger.info(
-        `[ENTITLEMENT PROVISIONED] User ${order.userId} granted ${featureKey} until ${newExpiryDate?.toISOString() || 'LIFETIME'}`
+        `[ENTITLEMENT PROVISIONED] User ${order.userId} granted ${featureKey} until ${entitlement.expiryDate ? entitlement.expiryDate.toISOString() : 'LIFETIME'}`
       );
 
       return {
@@ -790,25 +775,76 @@ export class PaymentService {
   }
 
   /**
-   * List active entitlements for a user.
+   * List paginated orders across all students for administrative portal (BB-05C).
    */
-  async getUserEntitlements(userId: string): Promise<UserEntitlement[]> {
-    const entitlements = await db
-      .select()
-      .from(userEntitlementsTable)
-      .where(
-        and(
-          eq(userEntitlementsTable.userId, userId as any),
-          eq(userEntitlementsTable.status, 'ACTIVE')
-        )
-      )
-      .orderBy(desc(userEntitlementsTable.createdAt));
+  async listAllOrdersAdmin(params: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    userId?: string;
+    productId?: string;
+  }): Promise<{
+    orders: Array<PaymentOrder & { studentEmail?: string | null; studentName?: string | null }>;
+    total: number;
+  }> {
+    const { limit = 20, offset = 0, status, userId, productId } = params;
 
-    // Filter out expired items (soft evaluation)
-    const now = new Date();
-    return entitlements.filter(
-      (e) => !e.expiryDate || new Date(e.expiryDate) > now
-    );
+    const conditions: any[] = [];
+    if (status) conditions.push(eq(paymentOrdersTable.status, status));
+    if (userId) conditions.push(eq(paymentOrdersTable.userId, userId as any));
+    if (productId) conditions.push(eq(paymentOrdersTable.productId, productId));
+
+    const rows = await db
+      .select({
+        order: paymentOrdersTable,
+        email: usersTable.email,
+        fullName: usersTable.fullName,
+      })
+      .from(paymentOrdersTable)
+      .leftJoin(usersTable, eq(paymentOrdersTable.userId, usersTable.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(paymentOrdersTable.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(paymentOrdersTable)
+      .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+    return {
+      orders: rows.map((r) => ({
+        ...r.order,
+        studentEmail: r.email,
+        studentName: r.fullName,
+      })),
+      total: countResult?.count || 0,
+    };
+  }
+
+  /**
+   * List active entitlements for a user via the Entitlement Engine.
+   */
+  async getUserEntitlements(userId: string): Promise<Array<UserEntitlement & { remainingDays: number | null }>> {
+    return await entitlementService.getUserActiveEntitlements(userId);
+  }
+
+  /**
+   * Retrieve full historical audit of student entitlements (ACTIVE, EXPIRED, REVOKED, REFUNDED).
+   */
+  async getUserEntitlementHistory(userId: string): Promise<UserEntitlement[]> {
+    return await entitlementService.getUserEntitlementHistory(userId);
+  }
+
+  /**
+   * Check whether user currently holds access to a specific premium feature key.
+   */
+  async checkFeatureAccess(
+    userId: string,
+    featureKey: string,
+    context?: { academicSession?: string | null; semester?: string | null }
+  ) {
+    return await entitlementService.checkUserFeatureAccess(userId, featureKey, context);
   }
 
   /**

@@ -67,14 +67,34 @@ export interface IPaymentGateway {
   verifyWebhookSignature(rawBody: string | Buffer, signature: string): boolean;
 }
 
+export type ProductCategory = 'SEMESTER_PASS' | 'EXAM_PREP' | 'OPTIONAL_PURCHASE';
+
 export interface PaymentProduct {
   id: string;
   title: string;
   description: string;
-  amount: number; // minor units (kobo)
+  category: ProductCategory;
+  amount: number; // minor units (kobo: 1000 NGN = 100000)
   currency: string;
   purpose: string;
   featureKey: string;
-  durationDays: number | null; // null for lifetime/permanent
+  durationDays: number | null; // null for lifetime or semester-bound
+  academicSession?: string | null | undefined;
+  semester?: string | null | undefined;
+  benefits?: string[] | undefined;
+  isActive?: boolean | undefined;
   isTestProduct?: boolean | undefined;
+}
+
+export interface EntitlementCheckResult {
+  hasAccess: boolean;
+  featureKey: string;
+  status?: string | undefined;
+  remainingDays?: number | null | undefined;
+  expiryDate?: Date | null | undefined;
+  entitlementId?: string | undefined;
+  productId?: string | null | undefined;
+  academicSession?: string | null | undefined;
+  semester?: string | null | undefined;
+  reason?: string | undefined;
 }

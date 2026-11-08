@@ -3054,7 +3054,73 @@ export const paymentTransactionsTable = pgTable(
 );
 
 // =====================================================
-// USER ENTITLEMENTS
+// PAYMENT PRODUCTS (BB-05C)
+// =====================================================
+
+export const paymentProductsTable = pgTable(
+  'payment_products',
+  {
+    id: text('id')
+      .primaryKey(), // e.g. 'SEMESTER_PASS_HARMATTAN_2026', 'EXAM_PREP_PASS_30'
+
+    title: text('title')
+      .notNull(),
+
+    description: text('description')
+      .notNull(),
+
+    category: text('category')
+      .notNull(), // 'SEMESTER_PASS' | 'EXAM_PREP' | 'OPTIONAL_PURCHASE'
+
+    amount: integer('amount')
+      .notNull(), // Integer minor currency units (kobo: 1000 NGN = 100000)
+
+    currency: text('currency')
+      .default('NGN')
+      .notNull(),
+
+    purpose: text('purpose')
+      .notNull(), // 'SEMESTER_SUBSCRIPTION' | 'EXAM_PRACTICE' | 'AI_TUTORING'
+
+    featureKey: text('feature_key')
+      .notNull(), // 'SEMESTER_PREMIUM_ACCESS' | 'EXAM_PREP_ACCESS' | 'AI_EXPLANATIONS'
+
+    durationDays: integer('duration_days'), // null = semester-specific or permanent
+
+    academicSession: text('academic_session'), // e.g. '2026/2027'
+
+    semester: text('semester'), // 'harmattan' | 'rain'
+
+    benefits: jsonb('benefits')
+      .$type<string[]>()
+      .default([])
+      .notNull(),
+
+    isActive: boolean('is_active')
+      .default(true)
+      .notNull(),
+
+    isTestProduct: boolean('is_test_product')
+      .default(true)
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    paymentProductsCategoryIdx: index('payment_products_category_idx').on(table.category),
+    paymentProductsActiveIdx: index('payment_products_active_idx').on(table.isActive),
+    paymentProductsSessionSemesterIdx: index('payment_products_session_semester_idx').on(table.academicSession, table.semester),
+  })
+);
+
+// =====================================================
+// USER ENTITLEMENTS (BB-05C: Semester & Multi-Product Extensible)
 // =====================================================
 
 export const userEntitlementsTable = pgTable(
@@ -3075,12 +3141,18 @@ export const userEntitlementsTable = pgTable(
         onDelete: 'set null',
       }),
 
+    productId: text('product_id'), // e.g. 'SEMESTER_PASS_HARMATTAN_2026'
+
     featureKey: text('feature_key')
-      .notNull(), // e.g. 'PREMIUM_QUIZ_PASS', 'EXAM_PRACTICE_BUNDLE', 'VERIFIED_CERTIFICATE'
+      .notNull(), // e.g. 'SEMESTER_PREMIUM_ACCESS', 'EXAM_PREP_ACCESS', 'AI_EXPLANATIONS'
+
+    academicSession: text('academic_session'), // e.g. '2026/2027'
+
+    semester: text('semester'), // 'harmattan' | 'rain'
 
     status: text('status')
       .default('ACTIVE')
-      .notNull(), // EntitlementStatus
+      .notNull(), // 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'REFUNDED'
 
     startDate: timestamp('start_date', { withTimezone: true })
       .defaultNow()
@@ -3105,7 +3177,9 @@ export const userEntitlementsTable = pgTable(
     userEntitlementsFeatureKeyIdx: index('user_entitlements_feature_key_idx').on(table.featureKey),
     userEntitlementsStatusIdx: index('user_entitlements_status_idx').on(table.status),
     userEntitlementsExpiryIdx: index('user_entitlements_expiry_idx').on(table.expiryDate),
-    userEntitlementsUserFeatureUnique: unique('user_entitlements_user_feature_unique').on(table.userId, table.featureKey),
+    userEntitlementsProductIdx: index('user_entitlements_product_idx').on(table.productId),
+    userEntitlementsUserFeatureStatusIdx: index('user_entitlements_user_feature_status_idx').on(table.userId, table.featureKey, table.status),
+    userEntitlementsSessionSemesterIdx: index('user_entitlements_session_semester_idx').on(table.academicSession, table.semester),
   })
 );
 
@@ -3163,6 +3237,8 @@ export const webhookEventsTable = pgTable(
 );
 
 // Payment Types
+export type PaymentProductRecord = typeof paymentProductsTable.$inferSelect;
+export type NewPaymentProductRecord = typeof paymentProductsTable.$inferInsert;
 export type PaymentOrder = typeof paymentOrdersTable.$inferSelect;
 export type NewPaymentOrder = typeof paymentOrdersTable.$inferInsert;
 export type PaymentTransaction = typeof paymentTransactionsTable.$inferSelect;

@@ -90,6 +90,11 @@ export const PERMISSIONS = {
   OPPORTUNITIES_UPDATE: 'opportunities.update',
   OPPORTUNITIES_DELETE: 'opportunities.delete',
   OPPORTUNITIES_PUBLISH: 'opportunities.publish',
+
+  // Monetization & Payments (BB-05C)
+  PAYMENTS_READ: 'payments.read',
+  PAYMENTS_MANAGE: 'payments.manage',
+  ORDERS_READ: 'orders.read',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS] | string;
