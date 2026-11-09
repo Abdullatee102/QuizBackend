@@ -883,6 +883,24 @@ export const attendanceService = {
           ? ATTENDANCE_SESSION_STATUSES.CLOSED
           : s.status;
 
+      const isSessionOpen = effectiveSessionStatus === ATTENDANCE_SESSION_STATUSES.OPEN;
+
+      let computedStatus: string;
+      let computedRemarks: string | null = null;
+
+      if (record) {
+        computedStatus = record.status;
+        computedRemarks = record.remarks;
+      } else if (isSessionOpen) {
+        // While session is active/open, student is pending check-in, NOT absent!
+        computedStatus = 'PENDING';
+        computedRemarks = 'Roll-call session is currently open. Mark your attendance now.';
+      } else {
+        // Only if session has closed/expired and student never checked in, they are absent
+        computedStatus = ATTENDANCE_RECORD_STATUSES.ABSENT;
+        computedRemarks = 'Did not check in within stipulated time (ABSENT)';
+      }
+
       return {
         sessionId: s.id,
         title: s.title,
@@ -891,23 +909,25 @@ export const attendanceService = {
         startTime: s.startTime,
         endTime: s.endTime,
         sessionStatus: effectiveSessionStatus,
-        status: record?.status || ATTENDANCE_RECORD_STATUSES.ABSENT,
-        remarks:
-          record?.remarks ||
-          (effectiveSessionStatus === ATTENDANCE_SESSION_STATUSES.CLOSED && !record
-            ? 'Did not check in within stipulated time (ABSENT)'
-            : null),
+        status: computedStatus,
+        remarks: computedRemarks,
         markedAt: record?.markedAt || null,
       };
     });
 
     const totalSessions = sessions.length;
+    const closedOrRecordedSessions = sessionHistory.filter((s) => s.status !== 'PENDING');
     const presentCount = sessionHistory.filter((s) => s.status === ATTENDANCE_RECORD_STATUSES.PRESENT).length;
     const lateCount = sessionHistory.filter((s) => s.status === ATTENDANCE_RECORD_STATUSES.LATE).length;
     const excusedCount = sessionHistory.filter((s) => s.status === ATTENDANCE_RECORD_STATUSES.EXCUSED).length;
     const absentCount = sessionHistory.filter((s) => s.status === ATTENDANCE_RECORD_STATUSES.ABSENT).length;
+    const pendingCount = sessionHistory.filter((s) => s.status === 'PENDING').length;
     const attendedCount = presentCount + lateCount;
-    const attendancePercentage = totalSessions > 0 ? Math.round((attendedCount / totalSessions) * 100 * 10) / 10 : 0;
+    const applicableSessionsCount = closedOrRecordedSessions.length;
+    const attendancePercentage =
+      applicableSessionsCount > 0
+        ? Math.round((attendedCount / applicableSessionsCount) * 100 * 10) / 10
+        : (totalSessions > 0 ? 100 : 0);
 
     return {
       offering,
@@ -918,6 +938,7 @@ export const attendanceService = {
         lateCount,
         excusedCount,
         absentCount,
+        pendingCount,
         attendancePercentage,
       },
       history: sessionHistory,

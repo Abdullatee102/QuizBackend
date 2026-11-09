@@ -165,6 +165,25 @@ export const assessmentAttemptService = {
     const now = Date.now();
     const results = [];
 
+    // Query question counts for all published assessments
+    const assessmentIds = assessments.map((a) => a.id);
+    const questionCounts =
+      assessmentIds.length > 0
+        ? await db
+            .select({
+              assessmentId: assessmentQuestionsTable.assessmentId,
+              count: sql<number>`cast(count(*) as integer)`,
+            })
+            .from(assessmentQuestionsTable)
+            .where(inArray(assessmentQuestionsTable.assessmentId, assessmentIds as any[]))
+            .groupBy(assessmentQuestionsTable.assessmentId)
+        : [];
+
+    const questionCountMap = new Map<string, number>();
+    for (const qc of questionCounts) {
+      questionCountMap.set(qc.assessmentId, qc.count);
+    }
+
     for (const a of assessments) {
       const startMs = new Date(a.startTime).getTime();
       const endMs = new Date(a.endTime).getTime();
@@ -248,10 +267,18 @@ export const assessmentAttemptService = {
       const canStart = operationalStatus === 'OPEN' && attemptsCount < a.maxAttempts && !activeAttempt;
       const canResume = !!activeAttempt;
 
+      const qCount = questionCountMap.get(a.id) || 0;
+
       results.push({
         ...a,
+        questionCount: qCount,
+        questionsCount: qCount,
+        totalQuestions: qCount,
+        totalPoints: a.totalMarks,
+        totalMarks: a.totalMarks,
         operationalStatus,
         attemptsCount,
+        existingAttemptsCount: attemptsCount,
         maxAttempts: a.maxAttempts,
         canStart,
         canResume,
@@ -363,11 +390,18 @@ export const assessmentAttemptService = {
 
     const canStart = operationalStatus === 'OPEN' && attemptsCount < assessment.maxAttempts && !activeAttempt;
     const canResume = !!activeAttempt;
+    const qCountNum = qCount?.count || 0;
 
     return {
       assessment: {
         ...assessment,
-        questionCount: qCount?.count || 0,
+        questionCount: qCountNum,
+        questionsCount: qCountNum,
+        totalQuestions: qCountNum,
+        totalPoints: assessment.totalMarks,
+        totalMarks: assessment.totalMarks,
+        existingAttemptsCount: attemptsCount,
+        studentAttemptStatus: activeAttempt ? 'IN_PROGRESS' : (studentAttempts[0]?.status || null),
         operationalStatus,
         attemptsCount,
         canStart,

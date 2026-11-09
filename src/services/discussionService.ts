@@ -228,7 +228,10 @@ export const discussionService = {
       .orderBy(asc(courseDiscussionRepliesTable.createdAt));
 
     return {
-      discussion,
+      discussion: {
+        ...discussion,
+        replies,
+      },
       replies,
     };
   },
