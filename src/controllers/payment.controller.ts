@@ -92,6 +92,14 @@ export const paymentController = {
         return;
       }
 
+      if (error.message.includes('Payment gateway configuration missing')) {
+        res.status(503).json({
+          status: 'fail',
+          message: 'Payment gateway configuration is missing on the server. Please ensure PAYSTACK_SECRET_KEY is configured in environment variables.',
+        });
+        return;
+      }
+
       res.status(500).json({
         status: 'error',
         message: error.message || 'Failed to initialize payment transaction.',

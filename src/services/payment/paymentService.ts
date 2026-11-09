@@ -22,7 +22,7 @@ import {
 } from '../../db/schema.js';
 import logger from '../../config/logger.js';
 import type { IPaymentGateway, PaymentProduct } from './types.js';
-import { getProductById } from './products.js';
+import { getProductById, getProductByIdAsync } from './products.js';
 import { entitlementService } from './entitlementService.js';
 
 export class PaymentService {
@@ -97,7 +97,7 @@ export class PaymentService {
     }
 
     // 2. Authoritative server product resolution
-    const product = getProductById(productId);
+    const product = (await getProductByIdAsync(productId)) || getProductById(productId);
     if (!product) {
       throw new Error(`Invalid or unrecognized product ID: "${productId}".`);
     }
@@ -243,7 +243,7 @@ export class PaymentService {
         .where(eq(paymentTransactionsTable.orderId, order.id))
         .limit(1);
 
-      const product = getProductById(order.productId);
+      const product = (await getProductByIdAsync(order.productId)) || getProductById(order.productId);
       const [existingEntitlement] = product
         ? await db
             .select()
@@ -388,7 +388,7 @@ export class PaymentService {
     }
 
     // 6. Atomic Database Transaction: Complete Order, Record Transaction, Grant Entitlement
-    const product = getProductById(order.productId);
+    const product = (await getProductByIdAsync(order.productId)) || getProductById(order.productId);
     const featureKey = product?.featureKey || (order.metadata as any)?.featureKey || 'PREMIUM_QUIZ_PASS';
     const durationDays = product?.durationDays ?? (order.metadata as any)?.durationDays ?? null;
 
@@ -715,7 +715,7 @@ export class PaymentService {
       .where(eq(paymentTransactionsTable.orderId, order.id))
       .orderBy(desc(paymentTransactionsTable.createdAt));
 
-    const product = getProductById(order.productId);
+    const product = (await getProductByIdAsync(order.productId)) || getProductById(order.productId);
     const [entitlement] = product
       ? await db
           .select()
