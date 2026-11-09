@@ -275,7 +275,7 @@ export const materialService = {
 
     const exists = await materialStorageProvider.fileExists(material.storageKey);
     if (!exists) {
-      throw new Error('Underlying resource file is missing from server storage.');
+      throw new Error('Course material file not found on server storage. Please re-upload this document.');
     }
 
     const filePath = materialStorageProvider.getFilePath(material.storageKey);
@@ -401,7 +401,7 @@ export const materialService = {
 
     const exists = await materialStorageProvider.fileExists(material.storageKey);
     if (!exists) {
-      throw new Error('Underlying resource file is missing from server storage.');
+      throw new Error('Course material file not found on server storage. It may need to be re-uploaded by the course lecturer.');
     }
 
     // 3. Atomically increment downloadCount

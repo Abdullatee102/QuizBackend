@@ -56,10 +56,17 @@ export const downloadStudentMaterialHandler = async (
       materialId
     );
 
-    res.download(filePath, originalFileName);
+    res.download(filePath, originalFileName, (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({
+          status: 'fail',
+          message: 'Error transferring material file. The file may be missing from server storage.',
+        });
+      }
+    });
   } catch (error: any) {
     const isForbidden = error.message?.includes('Forbidden');
-    const isNotFound = error.message?.includes('not found');
+    const isNotFound = error.message?.includes('not found') || error.message?.includes('missing');
     const statusCode = isForbidden ? 403 : isNotFound ? 404 : 500;
 
     res.status(statusCode).json({
