@@ -24,7 +24,7 @@ const databaseUrl = rawDatabaseUrl
 export const pool = new Pool({
   connectionString: databaseUrl,
   max: 10,
-  idleTimeoutMillis: 15000,
+  idleTimeoutMillis: 60000,
   connectionTimeoutMillis: 30000,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,

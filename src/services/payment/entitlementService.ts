@@ -65,11 +65,15 @@ export const entitlementService = {
     for (const ent of entitlements) {
       const isExpired = ent.expiryDate !== null && ent.expiryDate <= now;
       if (isExpired) {
-        // Asynchronously update stale active entitlement to EXPIRED
-        db.update(userEntitlementsTable)
-          .set({ status: 'EXPIRED', updatedAt: now })
-          .where(eq(userEntitlementsTable.id, ent.id))
-          .catch((err) => logger.error(`[ENTITLEMENT AUTO-EXPIRE ERROR] ${err.message}`));
+        // Update stale active entitlement to EXPIRED
+        try {
+          await db
+            .update(userEntitlementsTable)
+            .set({ status: 'EXPIRED', updatedAt: now })
+            .where(eq(userEntitlementsTable.id, ent.id));
+        } catch (err: any) {
+          logger.error(`[ENTITLEMENT AUTO-EXPIRE ERROR] ${err.message}`);
+        }
         continue;
       }
 
