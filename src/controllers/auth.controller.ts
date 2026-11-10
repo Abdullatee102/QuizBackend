@@ -7,6 +7,7 @@ import { OAuth2Client } from 'google-auth-library';
 import logger from '../config/logger.js';
 import { authService } from '../services/authService.js';
 import { emailService } from '../services/emailService.js';
+import { rewardService } from '../services/rewardService.js';
 
 const googleOAuthClient = new OAuth2Client();
 
@@ -1430,5 +1431,132 @@ export const getRecommendedCourses = async (
       status: 'fail',
       message: 'Failed to fetch recommended courses',
     });
+  }
+};
+
+// =====================================================
+// BB-04: GAMIFICATION & STREAKS CONTROLLERS
+// =====================================================
+
+export const getGamificationSummary = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  const userId = req.user?.id || req.user?.userId;
+  if (!userId) {
+    res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const summary = await rewardService.getStudentXpSummary(String(userId));
+    res.status(200).json({
+      status: 'success',
+      data: summary,
+    });
+  } catch (error: any) {
+    logger.error(`[GAMIFICATION SUMMARY ERROR]: ${error?.message || error}`);
+    res.status(500).json({ status: 'fail', message: 'Failed to fetch gamification summary' });
+  }
+};
+
+export const getStreakStatusHandler = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  const userId = req.user?.id || req.user?.userId;
+  if (!userId) {
+    res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const streak = await rewardService.getStreakStatus(String(userId));
+    res.status(200).json({
+      status: 'success',
+      data: streak,
+    });
+  } catch (error: any) {
+    logger.error(`[STREAK STATUS ERROR]: ${error?.message || error}`);
+    res.status(500).json({ status: 'fail', message: 'Failed to fetch streak status' });
+  }
+};
+
+export const consumeStreakFreezeHandler = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  const userId = req.user?.id || req.user?.userId;
+  if (!userId) {
+    res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    // Record activity with streak freeze protection check
+    const streak = await rewardService.recordPracticeActivity(String(userId));
+    res.status(200).json({
+      status: 'success',
+      message: 'Streak freeze evaluated successfully.',
+      data: streak,
+    });
+  } catch (error: any) {
+    logger.error(`[STREAK FREEZE ERROR]: ${error?.message || error}`);
+    res.status(500).json({ status: 'fail', message: 'Failed to evaluate streak freeze' });
+  }
+};
+
+export const getDailyGoalsHandler = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  const userId = req.user?.id || req.user?.userId;
+  if (!userId) {
+    res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const summary = await rewardService.getStudentXpSummary(String(userId));
+    const streak = summary.streak;
+
+    // Adaptive daily goals based on today's practice
+    const goals = [
+      {
+        id: 'daily_goal_practice',
+        title: 'Daily Practice Target',
+        description: 'Earn at least 100 XP from course practice today',
+        targetXp: 100,
+        currentXp: summary.practiceXpToday,
+        isCompleted: summary.practiceXpToday >= 100,
+        rewardXp: 25,
+      },
+      {
+        id: 'daily_goal_streak',
+        title: 'Maintain Daily Streak',
+        description: 'Complete at least 1 quiz to protect your streak',
+        target: 1,
+        current: streak.isActiveToday ? 1 : 0,
+        isCompleted: streak.isActiveToday,
+        rewardXp: 15,
+      },
+      {
+        id: 'daily_goal_course_mastery',
+        title: 'Course Explorer',
+        description: 'Practice questions across your enrolled courses',
+        target: 1,
+        current: summary.courseBreakdownToday.length,
+        isCompleted: summary.courseBreakdownToday.length >= 1,
+        rewardXp: 20,
+      },
+    ];
+
+    res.status(200).json({
+      status: 'success',
+      data: goals,
+    });
+  } catch (error: any) {
+    logger.error(`[DAILY GOALS ERROR]: ${error?.message || error}`);
+    res.status(500).json({ status: 'fail', message: 'Failed to fetch daily goals' });
   }
 };

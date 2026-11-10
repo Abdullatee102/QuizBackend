@@ -194,7 +194,7 @@ export const discussionService = {
         },
       })
       .from(courseDiscussionsTable)
-      .innerJoin(usersTable, eq(courseDiscussionsTable.authorId, usersTable.id))
+      .leftJoin(usersTable, eq(courseDiscussionsTable.authorId, usersTable.id))
       .where(
         and(
           eq(courseDiscussionsTable.id, discussionId as any),
@@ -206,8 +206,8 @@ export const discussionService = {
       throw new Error('Discussion thread not found in this course offering.');
     }
 
-    // Fetch replies
-    const replies = await db
+    // Fetch replies using leftJoin to guarantee replies are never dropped if user metadata is sparse
+    const rawReplies = await db
       .select({
         id: courseDiscussionRepliesTable.id,
         discussionId: courseDiscussionRepliesTable.discussionId,
@@ -223,16 +223,24 @@ export const discussionService = {
         },
       })
       .from(courseDiscussionRepliesTable)
-      .innerJoin(usersTable, eq(courseDiscussionRepliesTable.authorId, usersTable.id))
+      .leftJoin(usersTable, eq(courseDiscussionRepliesTable.authorId, usersTable.id))
       .where(eq(courseDiscussionRepliesTable.discussionId, discussionId as any))
       .orderBy(asc(courseDiscussionRepliesTable.createdAt));
+
+    const normalizedReplies = rawReplies.map((r) => ({
+      ...r,
+      authorName: r.author?.fullName || (r.authorRole === 'LECTURER' ? 'Lecturer' : 'Student'),
+      authorAvatar: r.author?.avatarUrl || null,
+    }));
 
     return {
       discussion: {
         ...discussion,
-        replies,
+        authorName: discussion.author?.fullName || (discussion.authorRole === 'LECTURER' ? 'Lecturer' : 'Student'),
+        replies: normalizedReplies,
+        replyCount: normalizedReplies.length || discussion.replyCount || 0,
       },
-      replies,
+      replies: normalizedReplies,
     };
   },
 

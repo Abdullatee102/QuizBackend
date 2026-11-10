@@ -1644,6 +1644,12 @@ export const assessmentsTable = pgTable(
 
     cancellationReason: text('cancellation_reason'),
 
+    notificationAudienceType: text('notification_audience_type')
+      .default('ACADEMIC_ENROLLED')
+      .notNull(),
+
+    requiredProductId: text('required_product_id'),
+
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -3247,6 +3253,109 @@ export type UserEntitlement = typeof userEntitlementsTable.$inferSelect;
 export type NewUserEntitlement = typeof userEntitlementsTable.$inferInsert;
 export type WebhookEvent = typeof webhookEventsTable.$inferSelect;
 export type NewWebhookEvent = typeof webhookEventsTable.$inferInsert;
+
+// =====================================================
+// REWARD EVENTS (BB-04 IMMUTABLE REWARD LEDGER)
+// =====================================================
+
+export const rewardEventsTable = pgTable(
+  'reward_events',
+  {
+    id: uuid('id')
+      .defaultRandom()
+      .primaryKey(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .notNull(),
+
+    courseId: uuid('course_id')
+      .references(() => coursesTable.id, {
+        onDelete: 'set null',
+      }),
+
+    eventType: text('event_type')
+      .notNull(), // 'PRACTICE_QUIZ' | 'OFFICIAL_ASSESSMENT' | 'STREAK_MILESTONE' | 'STREAK_FREEZE' | 'DAILY_GOAL'
+
+    referenceId: text('reference_id')
+      .notNull(), // e.g. quiz_history.id or assessment_attempt.id
+
+    earnedXp: integer('earned_xp')
+      .default(0)
+      .notNull(),
+
+    metadata: jsonb('metadata')
+      .$type<Record<string, any>>()
+      .default({})
+      .notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userEventReferenceUnique: unique('reward_events_user_event_ref_unique').on(
+      table.userId,
+      table.eventType,
+      table.referenceId
+    ),
+    userCourseCreatedIdx: index('reward_events_user_course_created_idx').on(
+      table.userId,
+      table.courseId,
+      table.createdAt
+    ),
+    eventTypeIdx: index('reward_events_event_type_idx').on(table.eventType),
+    createdAtIdx: index('reward_events_created_at_idx').on(table.createdAt),
+  })
+);
+
+export type RewardEvent = typeof rewardEventsTable.$inferSelect;
+export type NewRewardEvent = typeof rewardEventsTable.$inferInsert;
+
+// =====================================================
+// USER STREAKS (BB-04 STATEFUL STREAK TRACKER)
+// =====================================================
+
+export const userStreaksTable = pgTable(
+  'user_streaks',
+  {
+    userId: uuid('user_id')
+      .references(() => usersTable.id, {
+        onDelete: 'cascade',
+      })
+      .primaryKey(),
+
+    currentStreak: integer('current_streak')
+      .default(0)
+      .notNull(),
+
+    longestStreak: integer('longest_streak')
+      .default(0)
+      .notNull(),
+
+    lastActivityDate: text('last_activity_date')
+      .notNull(), // 'YYYY-MM-DD' in Africa/Lagos
+
+    freezeCredits: integer('freeze_credits')
+      .default(0)
+      .notNull(), // maximum 2
+
+    lastFrozenDate: text('last_frozen_date'), // 'YYYY-MM-DD' in Africa/Lagos
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    streakIdx: index('user_streaks_streak_idx').on(table.currentStreak),
+  })
+);
+
+export type UserStreak = typeof userStreaksTable.$inferSelect;
+export type NewUserStreak = typeof userStreaksTable.$inferInsert;
+
 
 
 

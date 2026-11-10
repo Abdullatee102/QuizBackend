@@ -21,6 +21,10 @@ import {
   unlockAchievement,
   getRecommendedCourses,
   updateLeaderboardPrivacy,
+  getGamificationSummary,
+  getStreakStatusHandler,
+  consumeStreakFreezeHandler,
+  getDailyGoalsHandler,
 } from '../controllers/auth.controller.js';
 
 import {
@@ -288,6 +292,15 @@ router.post(
 // =====================================================
 // LEADERBOARD
 // =====================================================
+
+// =====================================================
+// BB-04: GAMIFICATION & STREAKS
+// =====================================================
+
+router.get('/gamification/summary', protect, getGamificationSummary);
+router.get('/streaks', protect, getStreakStatusHandler);
+router.post('/streaks/freeze', protect, consumeStreakFreezeHandler);
+router.get('/gamification/daily-goals', protect, getDailyGoalsHandler);
 
 router.get(
   '/leaderboard',

@@ -16,6 +16,7 @@ import {
 } from '../db/schema.js';
 import { eligibilityService } from './eligibilityService.js';
 import { assessmentGradingService } from './assessmentGradingService.js';
+import { rewardService } from './rewardService.js';
 import { socketService } from '../socket/index.js';
 import logger from '../config/logger.js';
 
@@ -1066,6 +1067,17 @@ export const assessmentAttemptService = {
       logger.error(`[ASSESSMENT] Auto-grading submitted attempt ${updatedAttempt.id} failed: ${gradeErr?.message}`);
     }
 
+    // Award 150 Milestone XP for valid official assessment completion (BB-04)
+    try {
+      await rewardService.awardAssessmentCompletionXp({
+        userId: studentId,
+        assessmentId: attempt.assessmentId,
+        attemptId: attempt.id,
+      });
+    } catch (rewardErr: any) {
+      logger.warn(`[REWARD] Assessment completion reward failed: ${rewardErr?.message}`);
+    }
+
     // Real-time broadcast to lecturer monitoring room
     try {
       socketService.emitToRoom(`assessment:${assessmentId}:monitor`, 'assessment:attempt:update', {
@@ -1425,6 +1437,17 @@ export const assessmentAttemptService = {
       await assessmentGradingService.gradeCbtAttempt(updatedAttempt.id);
     } catch (gradeErr: any) {
       logger.error(`[ASSESSMENT] Auto-grading force-submitted attempt ${updatedAttempt.id} failed: ${gradeErr?.message}`);
+    }
+
+    // Award 150 Milestone XP for valid official assessment completion (BB-04)
+    try {
+      await rewardService.awardAssessmentCompletionXp({
+        userId: attempt.studentId,
+        assessmentId: attempt.assessmentId,
+        attemptId: attempt.id,
+      });
+    } catch (rewardErr: any) {
+      logger.warn(`[REWARD] Assessment completion reward failed: ${rewardErr?.message}`);
     }
 
     // Real-time notification

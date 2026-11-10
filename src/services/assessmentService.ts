@@ -8,6 +8,7 @@ import {
   coursesTable,
   offeringLecturersTable,
   studentEnrollmentsTable,
+  userEntitlementsTable,
   questionsTable,
   usersTable,
   departmentsTable,
@@ -41,6 +42,8 @@ export interface CreateAssessmentInput {
   allowLateSubmission?: boolean | undefined;
   lateSubmissionDeadline?: string | Date | null | undefined;
   resultReleasePolicy?: ResultReleasePolicy | undefined;
+  notificationAudienceType?: 'ACADEMIC_ENROLLED' | 'PRODUCT_ENTITLED' | undefined;
+  requiredProductId?: string | null | undefined;
 }
 
 export interface UpdateAssessmentDraftInput {
@@ -56,6 +59,8 @@ export interface UpdateAssessmentDraftInput {
   allowLateSubmission?: boolean | undefined;
   lateSubmissionDeadline?: string | Date | null | undefined;
   resultReleasePolicy?: ResultReleasePolicy | undefined;
+  notificationAudienceType?: 'ACADEMIC_ENROLLED' | 'PRODUCT_ENTITLED' | undefined;
+  requiredProductId?: string | null | undefined;
 }
 
 export interface QuestionAssignmentItem {
@@ -165,6 +170,8 @@ export const assessmentService = {
         allowLateSubmission: Boolean(input.allowLateSubmission),
         lateSubmissionDeadline: input.lateSubmissionDeadline ? new Date(input.lateSubmissionDeadline) : null,
         resultReleasePolicy: input.resultReleasePolicy || 'MANUAL_AFTER_GRADING',
+        notificationAudienceType: input.notificationAudienceType || 'ACADEMIC_ENROLLED',
+        requiredProductId: input.requiredProductId || null,
       })
       .returning();
 
@@ -486,6 +493,8 @@ export const assessmentService = {
         allowLateSubmission: updates.allowLateSubmission !== undefined ? updates.allowLateSubmission : existing.allowLateSubmission,
         lateSubmissionDeadline: updates.lateSubmissionDeadline !== undefined ? (updates.lateSubmissionDeadline ? new Date(updates.lateSubmissionDeadline) : null) : existing.lateSubmissionDeadline,
         resultReleasePolicy: updates.resultReleasePolicy || existing.resultReleasePolicy,
+        notificationAudienceType: updates.notificationAudienceType || existing.notificationAudienceType,
+        requiredProductId: updates.requiredProductId !== undefined ? updates.requiredProductId : existing.requiredProductId,
         updatedAt: new Date(),
       })
       .where(eq(assessmentsTable.id, assessmentId as any))
@@ -728,7 +737,7 @@ export const assessmentService = {
       .from(coursesTable)
       .where(eq(coursesTable.id, assessment.courseId));
 
-    // 6. Notify all eligible enrolled students
+    // 6. Notify all eligible enrolled students (respecting product-aware targeting)
     try {
       const enrollments = await db
         .select({ studentId: studentEnrollmentsTable.studentId })
@@ -740,14 +749,40 @@ export const assessmentService = {
           )
         );
 
+      let eligibleStudentIds = enrollments.map((e) => String(e.studentId));
+
+      // Product-aware filtering: If assessment requires an active entitlement, intersect enrolled students
+      if (
+        assessment.notificationAudienceType === 'PRODUCT_ENTITLED' &&
+        assessment.requiredProductId &&
+        eligibleStudentIds.length > 0
+      ) {
+        const now = new Date();
+        const activeEntitled = await db
+          .select({ userId: userEntitlementsTable.userId })
+          .from(userEntitlementsTable)
+          .where(
+            and(
+              inArray(userEntitlementsTable.userId, eligibleStudentIds as any),
+              eq(userEntitlementsTable.productId, assessment.requiredProductId),
+              eq(userEntitlementsTable.status, 'ACTIVE'),
+              or(
+                sql`${userEntitlementsTable.expiryDate} IS NULL`,
+                sql`${userEntitlementsTable.expiryDate} > ${now}`
+              )
+            )
+          );
+        eligibleStudentIds = activeEntitled.map((e) => String(e.userId));
+      }
+
       const courseCode = course?.code || 'Course';
       const notificationTitle = `New Assessment Scheduled: ${courseCode}`;
       const notificationBody = `"${assessment.title}" has been scheduled for ${new Date(assessment.startTime).toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })}.`;
 
-      for (const enr of enrollments) {
+      for (const studentId of eligibleStudentIds) {
         notificationService
           .createNotification({
-            userId: enr.studentId,
+            userId: studentId,
             type: 'assessment.published',
             title: notificationTitle,
             body: notificationBody,
@@ -758,10 +793,12 @@ export const assessmentService = {
               title: assessment.title,
               startTime: assessment.startTime,
               durationMinutes: assessment.durationMinutes,
+              audienceType: assessment.notificationAudienceType,
+              requiredProductId: assessment.requiredProductId,
             },
           })
           .catch((err) => {
-            logger.warn(`[NOTIFICATION] Failed to send assessment notification to ${enr.studentId}: ${err.message}`);
+            logger.warn(`[NOTIFICATION] Failed to send assessment notification to ${studentId}: ${err.message}`);
           });
       }
     } catch (notifErr: any) {

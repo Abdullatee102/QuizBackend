@@ -46,6 +46,10 @@ export const createAssessmentSchema = z
             RESULT_RELEASE_POLICY.MANUAL_AFTER_GRADING,
           ])
           .default(RESULT_RELEASE_POLICY.MANUAL_AFTER_GRADING),
+        notificationAudienceType: z
+          .enum(['ACADEMIC_ENROLLED', 'PRODUCT_ENTITLED'])
+          .default('ACADEMIC_ENROLLED'),
+        requiredProductId: z.string().trim().optional().nullable(),
       })
       .superRefine((data, ctx) => {
         const start = new Date(data.startTime).getTime();
@@ -109,6 +113,10 @@ export const updateAssessmentDraftSchema = z.object({
           RESULT_RELEASE_POLICY.MANUAL_AFTER_GRADING,
         ])
         .optional(),
+      notificationAudienceType: z
+        .enum(['ACADEMIC_ENROLLED', 'PRODUCT_ENTITLED'])
+        .optional(),
+      requiredProductId: z.string().trim().optional().nullable(),
     })
     .superRefine((data, ctx) => {
       if (data.startTime && data.endTime) {

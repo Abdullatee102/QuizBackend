@@ -7,6 +7,7 @@ import {
   usersTable,
   facultiesTable,
   departmentsTable,
+  userEntitlementsTable,
 } from '../../db/schema.js';
 import { notificationService } from '../../services/notificationService.js';
 import { auditService } from '../../services/admin/auditService.js';
@@ -137,6 +138,51 @@ async function resolveRecipients(
 
     conditions.push(inArray(usersTable.id, userIds as any));
     summary = `Targeted individual user(s) (${userIds.length} specified)`;
+  } else if (normalizedTarget === 'product' || normalizedTarget === 'product_entitlement') {
+    const productId = targetFilter.productId || targetFilter.requiredProductId;
+    const now = new Date();
+    const activeEntitled = await db
+      .select({ userId: userEntitlementsTable.userId })
+      .from(userEntitlementsTable)
+      .where(
+        and(
+          productId ? eq(userEntitlementsTable.productId, productId) : undefined,
+          eq(userEntitlementsTable.status, 'ACTIVE'),
+          or(sql`${userEntitlementsTable.expiryDate} IS NULL`, sql`${userEntitlementsTable.expiryDate} > ${now}`)
+        )
+      );
+
+    const entitledUserIds = Array.from(new Set(activeEntitled.map((e) => String(e.userId))));
+    if (entitledUserIds.length === 0) {
+      return { userIds: [], summary: `No active entitled students for product ${productId || 'any'}` };
+    }
+    conditions.push(inArray(usersTable.id, entitledUserIds as any));
+    summary = `Students with active entitlement for ${productId || 'product'}`;
+  }
+
+  // Intersect academic targeting with product entitlement if requiredProductId is present
+  if (
+    targetFilter.requiredProductId &&
+    normalizedTarget !== 'product' &&
+    normalizedTarget !== 'product_entitlement'
+  ) {
+    const now = new Date();
+    const activeEntitled = await db
+      .select({ userId: userEntitlementsTable.userId })
+      .from(userEntitlementsTable)
+      .where(
+        and(
+          eq(userEntitlementsTable.productId, targetFilter.requiredProductId),
+          eq(userEntitlementsTable.status, 'ACTIVE'),
+          or(sql`${userEntitlementsTable.expiryDate} IS NULL`, sql`${userEntitlementsTable.expiryDate} > ${now}`)
+        )
+      );
+    const entitledUserIds = Array.from(new Set(activeEntitled.map((e) => String(e.userId))));
+    if (entitledUserIds.length === 0) {
+      return { userIds: [], summary: `${summary} (no students hold active entitlement for ${targetFilter.requiredProductId})` };
+    }
+    conditions.push(inArray(usersTable.id, entitledUserIds as any));
+    summary = `${summary} [Filtered by Product: ${targetFilter.requiredProductId}]`;
   }
 
   const rawTargetUsers = await db

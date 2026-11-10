@@ -104,7 +104,10 @@ export const PAYMENT_PRODUCTS: Record<string, PaymentProduct> = {
     isTestProduct: true,
   },
 
-  // 3. INDIVIDUAL OPTIONAL PURCHASES
+  // 3. INDIVIDUAL OPTIONAL PURCHASES (TEMPORARILY DEACTIVATED: PENDING TOKEN LEDGER)
+  // Deactivated: Currently entitlements evaluate duration (expiryDate > now). A decrementing 100-pack
+  // token ledger is not yet implemented in userEntitlementsTable. Unlimited AI tutoring is supported
+  // under duration-based Semester Passes (SEMESTER_PASS_HARMATTAN_2026, SEMESTER_PASS_RAIN_2026).
   AI_TUTOR_BOOST_100: {
     id: 'AI_TUTOR_BOOST_100',
     title: 'AI Explanation & Tutoring Pack',
@@ -122,7 +125,7 @@ export const PAYMENT_PRODUCTS: Record<string, PaymentProduct> = {
       'Theory Sample Answer Explanations',
       'Instant Concept Clarification',
     ],
-    isActive: true,
+    isActive: false, // Deactivated until token counter / decrementing ledger is added
     isTestProduct: true,
   },
 

@@ -1014,10 +1014,55 @@ async function runMigration() {
     `);
     console.log('[MIGRATION] Premium Products & Extended Entitlements schema verified (BB-05C)');
 
+    // 29. Deactivate consumption-based AI Tutor pack until decrementing credit ledger is added
+    await client.query(`
+      UPDATE payment_products
+      SET is_active = false
+      WHERE id = 'AI_TUTOR_BOOST_100';
+    `);
+    console.log('[MIGRATION] Incomplete consumption-based AI Tutor pack deactivated');
 
+    // 30. Product-aware assessment notifications schema additions
+    await client.query(`
+      ALTER TABLE assessments
+      ADD COLUMN IF NOT EXISTS notification_audience_type text DEFAULT 'ACADEMIC_ENROLLED' NOT NULL,
+      ADD COLUMN IF NOT EXISTS required_product_id text;
+    `);
+    console.log('[MIGRATION] assessments product-aware audience columns verified');
 
+    // 31. BB-04 Core Gamification reward events table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS reward_events (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        course_id uuid REFERENCES courses(id) ON DELETE SET NULL,
+        event_type text NOT NULL,
+        reference_id text NOT NULL,
+        earned_xp integer NOT NULL DEFAULT 0,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamp with time zone NOT NULL DEFAULT now(),
+        CONSTRAINT reward_events_user_event_ref_unique UNIQUE (user_id, event_type, reference_id)
+      );
+      CREATE INDEX IF NOT EXISTS reward_events_user_course_created_idx ON reward_events (user_id, course_id, created_at);
+      CREATE INDEX IF NOT EXISTS reward_events_event_type_idx ON reward_events (event_type);
+      CREATE INDEX IF NOT EXISTS reward_events_created_at_idx ON reward_events (created_at);
+    `);
+    console.log('[MIGRATION] reward_events table verified');
 
-    console.log('[MIGRATION] All database schema migrations successfully completed!');
+    // 32. BB-04 Core Gamification user streaks table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_streaks (
+        user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        current_streak integer NOT NULL DEFAULT 0,
+        longest_streak integer NOT NULL DEFAULT 0,
+        last_activity_date text NOT NULL,
+        freeze_credits integer NOT NULL DEFAULT 0,
+        last_frozen_date text,
+        updated_at timestamp with time zone NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS user_streaks_streak_idx ON user_streaks (current_streak);
+    `);
+    console.log('[MIGRATION] user_streaks table verified');
   } catch (error) {
     console.error('[MIGRATION ERROR]', error);
     process.exit(1);

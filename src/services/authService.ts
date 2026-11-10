@@ -30,6 +30,7 @@ import {
 } from 'drizzle-orm';
 
 import { quizService } from './quizService.js';
+import { rewardService } from './rewardService.js';
 
 import {
   notificationService,
@@ -1282,8 +1283,49 @@ export const authService = {
         })
         .returning();
 
+    if (!result) {
+      throw new Error('Failed to save quiz history record.');
+    }
+
+    // ---------------------------------------------------
+    // BB-04 REWARD LEDGER & PER-COURSE DAILY 500 XP CAP
+    // Enforces 500 XP cap per course per WAT calendar day
+    // ---------------------------------------------------
+    let finalAwardedXp = earnedXp;
+    let courseXpToday = earnedXp;
+    let remainingCourseXp = Math.max(0, 500 - earnedXp);
+    let isCourseCapReached = remainingCourseXp === 0;
+
+    try {
+      const rewardResult = await rewardService.processPracticeQuizReward({
+        userId: String(userId),
+        courseId: course.id,
+        quizHistoryId: result.id,
+        rawEarnedXp: earnedXp,
+        score: gradingResult.score,
+        totalQuestions: gradingResult.totalQuestions,
+        attemptMultiplier,
+      });
+
+      finalAwardedXp = rewardResult.awardedXp;
+      courseXpToday = rewardResult.courseXpToday;
+      remainingCourseXp = rewardResult.remainingCourseXp;
+      isCourseCapReached = rewardResult.isCourseCapReached;
+
+      // Synchronize quiz_history earnedXp with capped ledger reward
+      if (finalAwardedXp !== earnedXp) {
+        await db
+          .update(quizHistoryTable)
+          .set({ earnedXp: finalAwardedXp })
+          .where(eq(quizHistoryTable.id, result.id));
+        result.earnedXp = finalAwardedXp;
+      }
+    } catch (rewardErr: any) {
+      console.error('[QUIZ FLOW] Reward ledger error:', rewardErr?.message);
+    }
+
     console.log(
-      '[QUIZ FLOW] History saved:',
+      '[QUIZ FLOW] History saved with capped XP:',
       result
     );
 
@@ -1309,9 +1351,16 @@ export const authService = {
         score:
           gradingResult.score,
 
-        earnedXp,
+        earnedXp:
+          finalAwardedXp,
 
         attemptMultiplier,
+
+        courseXpToday,
+
+        remainingCourseXp,
+
+        isCourseCapReached,
 
         percentage:
           gradingResult.percentage,
@@ -1439,66 +1488,12 @@ export const authService = {
           ).getTime()
       );
 
-      let userStreak = 0;
-
-      if (
-        uniqueQuizDates.length >
-        0
-      ) {
-
-        userStreak = 1;
-
-        for (
-          let i = 1;
-          i <
-          uniqueQuizDates.length;
-          i++
-        ) {
-
-          const currentDate =
-            new Date(
-              uniqueQuizDates[
-                i - 1
-              ] as string
-            );
-
-          const previousDate =
-            new Date(
-              uniqueQuizDates[
-                i
-              ] as string
-            );
-
-          const differenceInDays =
-            Math.round(
-              (
-                currentDate.getTime() -
-                previousDate.getTime()
-              ) /
-                (
-                  1000 *
-                  60 *
-                  60 *
-                  24
-                )
-            );
-
-          if (
-            differenceInDays ===
-            1
-          ) {
-
-            userStreak++;
-
-          } else {
-
-            break;
-          }
-        }
-      }
+      // Authoritative persistent streak calculation in Africa/Lagos (WAT)
+      const streakStatus = await rewardService.getStreakStatus(String(userId));
+      const userStreak = streakStatus.currentStreak;
 
       console.log(
-        `[ACHIEVEMENTS] User ${userId} streak: ${userStreak} days`
+        `[ACHIEVEMENTS] User ${userId} streak: ${userStreak} days (longest: ${streakStatus.longestStreak}, freezes: ${streakStatus.freezeCredits})`
       );
 
       // =================================================
@@ -1889,6 +1884,23 @@ export const authService = {
           );
 
       } else if (
+        range === '7d'
+      ) {
+
+        const d =
+          new Date();
+
+        d.setDate(
+          d.getDate() - 7
+        );
+
+        dateFilter =
+          gte(
+            quizHistoryTable.createdAt,
+            d
+          );
+
+      } else if (
         range === '30d'
       ) {
 
@@ -1904,6 +1916,22 @@ export const authService = {
             quizHistoryTable.createdAt,
             d
           );
+
+      } else if (
+        range === 'harmattan'
+      ) {
+
+        const currentYear = new Date().getFullYear();
+        const seasonStart = new Date(currentYear, 8, 1); // Sept 1
+        dateFilter = gte(quizHistoryTable.createdAt, seasonStart);
+
+      } else if (
+        range === 'rain'
+      ) {
+
+        const currentYear = new Date().getFullYear();
+        const seasonStart = new Date(currentYear, 2, 1); // March 1
+        dateFilter = gte(quizHistoryTable.createdAt, seasonStart);
       }
 
       // Resolve requesting user if ID is supplied
