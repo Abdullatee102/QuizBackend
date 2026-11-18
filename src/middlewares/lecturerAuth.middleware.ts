@@ -5,6 +5,7 @@ import { db } from '../db/index.js';
 import { usersTable, coursesTable, courseAssignmentsTable, USER_ROLES } from '../db/schema.js';
 import type { LecturerAuthenticatedRequest, LecturerUserPayload } from '../types/lecturer.types.js';
 import type { UserRole, AccountStatus } from '../db/schema.js';
+import { formatUserDisplayId } from '../utils/identifier.js';
 import logger from '../config/logger.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -56,6 +57,7 @@ export const protectLecturer = async (
     const [user] = await db
       .select({
         id: usersTable.id,
+        displayId: usersTable.displayId,
         email: usersTable.email,
         fullName: usersTable.fullName,
         username: usersTable.username,
@@ -97,8 +99,11 @@ export const protectLecturer = async (
       return;
     }
 
+    const resolvedDisplayId = user.displayId || formatUserDisplayId(user);
     const lecturerPayload: LecturerUserPayload = {
       id: String(user.id),
+      displayId: resolvedDisplayId,
+      customId: resolvedDisplayId,
       email: String(user.email),
       fullName: user.fullName,
       username: user.username,

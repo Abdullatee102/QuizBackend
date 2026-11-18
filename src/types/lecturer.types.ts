@@ -3,6 +3,8 @@ import type { UserRole, AccountStatus, AssignmentStatus } from '../db/schema.js'
 
 export interface LecturerUserPayload {
   id: string;
+  displayId?: string | null;
+  customId?: string | null;
   email: string;
   fullName: string;
   username?: string | null;

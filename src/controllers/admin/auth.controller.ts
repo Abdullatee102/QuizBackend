@@ -9,6 +9,7 @@ import { auditService } from '../../services/admin/auditService.js';
 import { isAdminRole, getRolePermissions } from '../../config/permissions.js';
 import type { AdminAuthenticatedRequest } from '../../types/admin.types.js';
 import type { UserRole, AccountStatus } from '../../db/schema.js';
+import { formatUserDisplayId } from '../../utils/identifier.js';
 import logger from '../../config/logger.js';
 
 export const adminLogin = async (
@@ -92,12 +93,16 @@ export const adminLogin = async (
 
   logger.info(`[ADMIN LOGIN SUCCESS] Admin logged in: ${user.email} (Role: ${user.role})`);
 
+  const resolvedDisplayId = user.displayId || formatUserDisplayId(user);
+
   res.status(200).json({
     status: 'success',
     message: 'Admin authenticated successfully.',
     tokens,
     user: {
       id: user.id,
+      displayId: resolvedDisplayId,
+      customId: resolvedDisplayId,
       fullName: user.fullName,
       email: user.email,
       username: user.username,
@@ -205,12 +210,16 @@ export const adminGoogleLogin = async (
 
     logger.info(`[ADMIN GOOGLE AUTH SUCCESS] Admin logged in with Google SSO: ${user.email} (Role: ${user.role})`);
 
+    const resolvedDisplayId = user.displayId || formatUserDisplayId(user);
+
     res.status(200).json({
       status: 'success',
       message: 'Admin authenticated successfully via Google.',
       tokens,
       user: {
         id: user.id,
+        displayId: resolvedDisplayId,
+        customId: resolvedDisplayId,
         fullName: user.fullName,
         email: user.email,
         username: user.username,

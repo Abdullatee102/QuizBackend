@@ -3,6 +3,8 @@ import type { UserRole, AccountStatus } from '../db/schema.js';
 
 export interface AdminUserPayload {
   id: string;
+  displayId?: string | null;
+  customId?: string | null;
   email: string;
   role: UserRole;
   status: AccountStatus;

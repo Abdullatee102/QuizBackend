@@ -6,6 +6,7 @@ import { usersTable } from '../db/schema.js';
 import { isAdminRole, hasPermission, getRolePermissions } from '../config/permissions.js';
 import type { AdminAuthenticatedRequest, AdminUserPayload } from '../types/admin.types.js';
 import type { UserRole, AccountStatus } from '../db/schema.js';
+import { formatUserDisplayId } from '../utils/identifier.js';
 import logger from '../config/logger.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -53,6 +54,7 @@ export const protectAdmin = async (
     const [user] = await db
       .select({
         id: usersTable.id,
+        displayId: usersTable.displayId,
         email: usersTable.email,
         fullName: usersTable.fullName,
         username: usersTable.username,
@@ -91,8 +93,11 @@ export const protectAdmin = async (
       return;
     }
 
+    const resolvedDisplayId = user.displayId || formatUserDisplayId(user);
     const adminPayload: AdminUserPayload = {
       id: String(user.id),
+      displayId: resolvedDisplayId,
+      customId: resolvedDisplayId,
       email: String(user.email),
       fullName: user.fullName,
       username: user.username,

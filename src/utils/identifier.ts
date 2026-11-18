@@ -20,8 +20,9 @@ export function formatUserDisplayId(user?: {
   matricNumber?: string | null | undefined;
 } | null | undefined): string {
   if (!user) return '—';
-  if (user.displayId) return user.displayId;
-  if (user.customId) return user.customId;
+  // Strictly prioritize new generic BB- format
+  if (user.displayId && user.displayId.startsWith('BB-')) return user.displayId;
+  if (user.customId && user.customId.startsWith('BB-')) return user.customId;
   if (!user.id) return '—';
 
   const shortHex = user.id.replace(/-/g, '').slice(-4).toUpperCase();
