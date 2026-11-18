@@ -45,6 +45,7 @@ export const listUsers = async (
           ilike(usersTable.email, pattern),
           ilike(usersTable.username, pattern),
           ilike(usersTable.phoneNumber, pattern),
+          ilike(usersTable.displayId, pattern),
           sql`CAST(${usersTable.id} AS TEXT) ILIKE ${pattern}`,
           sql`CAST(${usersTable.id} AS TEXT) ILIKE ${hexPattern}`,
           ilike(departmentsTable.code, pattern),
@@ -78,6 +79,7 @@ export const listUsers = async (
     const usersQuery = db
       .select({
         id: usersTable.id,
+        displayId: usersTable.displayId,
         fullName: usersTable.fullName,
         username: usersTable.username,
         email: usersTable.email,
@@ -115,9 +117,10 @@ export const listUsers = async (
 
     const enrichedUsers = users.map((u) => ({
       ...u,
-      customId: formatUserDisplayId({
+      customId: u.displayId || formatUserDisplayId({
         id: u.id,
         role: u.role,
+        displayId: u.displayId,
         departmentCode: u.departmentCode,
         username: u.username,
       }),
@@ -161,6 +164,7 @@ export const getUserDetails = async (
     const [user] = await db
       .select({
         id: usersTable.id,
+        displayId: usersTable.displayId,
         fullName: usersTable.fullName,
         username: usersTable.username,
         email: usersTable.email,
@@ -190,9 +194,10 @@ export const getUserDetails = async (
       return;
     }
 
-    const customId = formatUserDisplayId({
+    const customId = user.displayId || formatUserDisplayId({
       id: user.id,
       role: user.role,
+      displayId: user.displayId,
       departmentCode: user.departmentCode,
       username: user.username,
     });

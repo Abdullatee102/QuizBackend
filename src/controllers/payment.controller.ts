@@ -506,8 +506,36 @@ export const paymentController = {
                 .details-row:last-child { margin-bottom: 0; }
                 .details-label { color: #64748b; }
                 .details-val { font-weight: 600; color: #0f172a; }
-                .btn { display: inline-block; width: 100%; box-sizing: border-box; background: #4f46e5; color: white; padding: 0.75rem 1rem; border-radius: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.875rem; cursor: pointer; border: none; }
+                .btn { display: inline-block; width: 100%; box-sizing: border-box; background: #005D4B; color: white; padding: 0.85rem 1rem; border-radius: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.95rem; cursor: pointer; border: none; transition: background 0.2s ease; }
+                .btn:active { background: #004638; }
+                .redirect-notice { font-size: 0.75rem; color: #64748b; margin-top: 1rem; margin-bottom: 0; line-height: 1.4; }
+                .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(0, 93, 75, 0.2); border-top-color: #005D4B; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+                @keyframes spin { to { transform: rotate(360deg); } }
               </style>
+              <script>
+                const ref = "${encodeURIComponent(reference)}";
+                const stat = "${result.order?.status || (isSuccess ? 'COMPLETED' : 'PENDING')}";
+                const appUrls = [
+                  "brainbuzz-app://payment-callback?reference=" + ref + "&status=" + stat,
+                  "brainbuzz://payment-callback?reference=" + ref + "&status=" + stat,
+                  "intent://payment-callback?reference=" + ref + "&status=" + stat + "#Intent;scheme=brainbuzz-app;package=com.abdullateef.brainbuzz;end"
+                ];
+
+                function returnToApp() {
+                  window.location.href = appUrls[0];
+                  setTimeout(function() {
+                    window.location.href = appUrls[1];
+                  }, 400);
+                  setTimeout(function() {
+                    window.location.href = appUrls[2];
+                  }, 900);
+                }
+
+                // Automatically attempt to redirect back to Brain Buzz after page loads
+                window.addEventListener('DOMContentLoaded', function() {
+                  setTimeout(returnToApp, 500);
+                });
+              </script>
             </head>
             <body>
               <div class="card">
@@ -521,9 +549,12 @@ export const paymentController = {
                   ${result.order?.amount ? `<div class="details-row"><span class="details-label">Amount:</span><span class="details-val">&#8358;${(result.order.amount / 100).toLocaleString()}</span></div>` : ''}
                 </div>
 
-                <a href="brainbuzz://payment-callback?reference=${encodeURIComponent(reference)}&status=${result.order?.status || 'UNKNOWN'}" class="btn">
+                <a href="brainbuzz-app://payment-callback?reference=${encodeURIComponent(reference)}&status=${result.order?.status || 'UNKNOWN'}" class="btn" onclick="returnToApp(); return false;">
                   Return to Brain Buzz App
                 </a>
+                <p class="redirect-notice">
+                  <span class="spinner"></span>Returning to Brain Buzz automatically... If you are not redirected, tap the button above.
+                </p>
               </div>
             </body>
           </html>
@@ -726,20 +757,22 @@ export const paymentController = {
     req: AuthenticatedRequest,
     res: Response
   ): Promise<void> => {
-    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
     const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
     const status = req.query.status as string | undefined;
     const userId = req.query.userId as string | undefined;
     const productId = req.query.productId as string | undefined;
+    const search = req.query.search as string | undefined;
 
     try {
-      const params: { limit?: number; offset?: number; status?: string; userId?: string; productId?: string } = {
+      const params: { limit?: number; offset?: number; status?: string; userId?: string; productId?: string; search?: string } = {
         limit,
         offset,
       };
       if (status) params.status = status;
       if (userId) params.userId = userId;
       if (productId) params.productId = productId;
+      if (search) params.search = search;
 
       const result = await paymentService.listAllOrdersAdmin(params);
 

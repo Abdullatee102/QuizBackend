@@ -120,6 +120,9 @@ export const usersTable = pgTable(
       .default('USERNAME_ONLY')
       .notNull(),
 
+    displayId: text('display_id')
+      .unique(),
+
     createdAt: timestamp('created_at')
       .defaultNow()
       .notNull(),
@@ -128,6 +131,7 @@ export const usersTable = pgTable(
     roleIdx: index('users_role_idx').on(table.role),
     statusIdx: index('users_status_idx').on(table.status),
     leaderboardPrivacyIdx: index('users_leaderboard_privacy_idx').on(table.leaderboardPrivacy),
+    displayIdIdx: index('users_display_id_idx').on(table.displayId),
     facultyIdIdx: index('users_faculty_id_idx').on(table.facultyId),
     departmentIdIdx: index('users_department_id_idx').on(table.departmentId),
     levelIdx: index('users_level_idx').on(table.level),

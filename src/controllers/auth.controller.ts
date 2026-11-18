@@ -8,6 +8,7 @@ import logger from '../config/logger.js';
 import { authService } from '../services/authService.js';
 import { emailService } from '../services/emailService.js';
 import { rewardService } from '../services/rewardService.js';
+import { googleAuthService } from '../services/googleAuthService.js';
 
 const googleOAuthClient = new OAuth2Client();
 
@@ -365,42 +366,20 @@ export const googleAuth = async (
     return;
   }
 
-  const clientId = process.env.GOOGLE_WEB_CLIENT_ID;
-  if (!clientId) {
-    logger.error('[GOOGLE AUTH] GOOGLE_WEB_CLIENT_ID environment variable is missing.');
-    res.status(500).json({
-      status: 'error',
-      message: 'Server Google authentication configuration error',
-    });
-    return;
-  }
-
-  let payload;
+  let claims;
   try {
-    const ticket = await googleOAuthClient.verifyIdToken({
-      idToken,
-      audience: clientId,
-    });
-    payload = ticket.getPayload();
+    claims = await googleAuthService.verifyGoogleToken(idToken);
   } catch (error: any) {
     logger.warn(`[GOOGLE AUTH] Token verification failed: ${error?.message || error}`);
     res.status(401).json({
       status: 'fail',
-      message: 'Invalid or expired Google authentication token',
+      message: error?.message || 'Invalid or expired Google authentication token',
     });
     return;
   }
 
-  if (!payload || !payload.email) {
-    res.status(401).json({
-      status: 'fail',
-      message: 'Google token does not contain a verified email identity',
-    });
-    return;
-  }
-
-  const { sub, email, name, picture } = payload;
-  const userEmail = email as string;
+  const { sub, email, name, picture } = claims;
+  const userEmail = email.toLowerCase().trim();
 
   let user = await authService.findUser(userEmail);
 

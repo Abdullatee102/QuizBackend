@@ -35,6 +35,7 @@ import { rewardService } from './rewardService.js';
 import {
   notificationService,
 } from './notificationService.js';
+import { generateNextDisplayId } from '../utils/identifier.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET === 'fallback-secret-key') {
@@ -616,6 +617,10 @@ export const authService = {
           password:
             userData.password ||
             '',
+
+          displayId:
+            userData.displayId ||
+            (await generateNextDisplayId(userData.role || 'STUDENT')),
         })
         .returning();
 

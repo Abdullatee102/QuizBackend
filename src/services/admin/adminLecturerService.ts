@@ -13,7 +13,7 @@ import {
 } from '../../db/schema.js';
 import { auditService } from './auditService.js';
 import logger from '../../config/logger.js';
-import { formatUserDisplayId } from '../../utils/identifier.js';
+import { formatUserDisplayId, generateNextDisplayId } from '../../utils/identifier.js';
 
 export const adminLecturerService = {
   /**
@@ -64,6 +64,8 @@ export const adminLecturerService = {
       }
     }
 
+    const nextDisplayId = await generateNextDisplayId('LECTURER');
+
     const [newLecturer] = await db
       .insert(usersTable)
       .values({
@@ -76,6 +78,7 @@ export const adminLecturerService = {
         departmentId: (data.departmentId as any) || null,
         role: USER_ROLES.LECTURER,
         status: ACCOUNT_STATUS.ACTIVE,
+        displayId: nextDisplayId,
       })
       .returning({
         id: usersTable.id,
@@ -83,6 +86,7 @@ export const adminLecturerService = {
         email: usersTable.email,
         username: usersTable.username,
         role: usersTable.role,
+        displayId: usersTable.displayId,
         status: usersTable.status,
         facultyId: usersTable.facultyId,
         departmentId: usersTable.departmentId,
@@ -139,6 +143,7 @@ export const adminLecturerService = {
           ilike(usersTable.fullName, pattern),
           ilike(usersTable.email, pattern),
           ilike(usersTable.username, pattern),
+          ilike(usersTable.displayId, pattern),
           sql`CAST(${usersTable.id} AS TEXT) ILIKE ${pattern}`,
           sql`CAST(${usersTable.id} AS TEXT) ILIKE ${hexPattern}`,
           ilike(departmentsTable.code, pattern),
@@ -164,6 +169,7 @@ export const adminLecturerService = {
     const lecturersQuery = db
       .select({
         id: usersTable.id,
+        displayId: usersTable.displayId,
         fullName: usersTable.fullName,
         email: usersTable.email,
         username: usersTable.username,
@@ -209,9 +215,10 @@ export const adminLecturerService = {
 
         return {
           ...l,
-          customId: formatUserDisplayId({
+          customId: l.displayId || formatUserDisplayId({
             id: l.id,
             role: l.role,
+            displayId: l.displayId,
             departmentCode: l.departmentCode,
             username: l.username,
           }),
@@ -238,6 +245,7 @@ export const adminLecturerService = {
     const [lecturer] = await db
       .select({
         id: usersTable.id,
+        displayId: usersTable.displayId,
         fullName: usersTable.fullName,
         email: usersTable.email,
         username: usersTable.username,
@@ -287,9 +295,10 @@ export const adminLecturerService = {
     return {
       lecturer: {
         ...lecturer,
-        customId: formatUserDisplayId({
+        customId: lecturer.displayId || formatUserDisplayId({
           id: lecturer.id,
           role: lecturer.role,
+          displayId: lecturer.displayId,
           departmentCode: lecturer.departmentCode,
           username: lecturer.username,
         }),

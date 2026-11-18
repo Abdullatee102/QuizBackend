@@ -6,7 +6,7 @@
  * idempotent verification, and strict entitlement lifecycle management.
  */
 
-import { eq, and, desc, sql, lt } from 'drizzle-orm';
+import { eq, and, desc, sql, lt, or, ilike } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { db } from '../../db/index.js';
 import {
@@ -24,6 +24,7 @@ import logger from '../../config/logger.js';
 import type { IPaymentGateway, PaymentProduct } from './types.js';
 import { getProductById, getProductByIdAsync } from './products.js';
 import { entitlementService } from './entitlementService.js';
+import { formatUserDisplayId } from '../../utils/identifier.js';
 
 export class PaymentService {
   private gateway: IPaymentGateway;
@@ -680,7 +681,16 @@ export class PaymentService {
     userId: string;
     role?: string | undefined;
   }): Promise<{
-    order: PaymentOrder;
+    order: PaymentOrder & {
+      studentEmail?: string | null;
+      userEmail?: string | null;
+      studentName?: string | null;
+      userName?: string | null;
+      studentDisplayId?: string | null;
+      productTitle?: string | null;
+      productDescription?: string | null;
+    };
+    product?: PaymentProduct | null;
     transactions: PaymentTransaction[];
     entitlement?: UserEntitlement | null | undefined;
   }> {
@@ -729,8 +739,37 @@ export class PaymentService {
           .limit(1)
       : [null];
 
+    const [user] = await db
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+        fullName: usersTable.fullName,
+        displayId: usersTable.displayId,
+        role: usersTable.role,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, order.userId));
+
+    const studentDisplayId =
+      user?.displayId ||
+      formatUserDisplayId({
+        id: order.userId,
+        role: user?.role || 'STUDENT',
+        displayId: user?.displayId,
+      });
+
     return {
-      order,
+      order: {
+        ...order,
+        studentEmail: user?.email || null,
+        userEmail: user?.email || null,
+        studentName: user?.fullName || null,
+        userName: user?.fullName || null,
+        studentDisplayId,
+        productTitle: product?.title || order.productId,
+        productDescription: product?.description || '',
+      },
+      product: product || null,
       transactions,
       entitlement,
     };
@@ -745,7 +784,13 @@ export class PaymentService {
     offset?: number | undefined;
     status?: string | undefined;
   }): Promise<{
-    orders: PaymentOrder[];
+    orders: Array<PaymentOrder & {
+      title?: string;
+      description?: string;
+      category?: string | null;
+      features?: string[];
+      gatewayTransactionId?: string | null;
+    }>;
     total: number;
   }> {
     const { userId, limit = 20, offset = 0, status } = params;
@@ -769,7 +814,17 @@ export class PaymentService {
       .where(and(...conditions));
 
     return {
-      orders,
+      orders: orders.map((o) => {
+        const prod = getProductById(o.productId);
+        return {
+          ...o,
+          title: prod?.title || (o.metadata as any)?.title || o.productId,
+          description: prod?.description || (o.metadata as any)?.description || '',
+          category: prod?.category || null,
+          features: prod?.benefits || [],
+          gatewayTransactionId: (o.metadata as any)?.gatewayReference || o.orderReference,
+        };
+      }),
       total: countResult?.count || 0,
     };
   }
@@ -783,22 +838,46 @@ export class PaymentService {
     status?: string;
     userId?: string;
     productId?: string;
+    search?: string;
   }): Promise<{
-    orders: Array<PaymentOrder & { studentEmail?: string | null; studentName?: string | null }>;
+    orders: Array<PaymentOrder & {
+      studentEmail?: string | null;
+      studentName?: string | null;
+      userEmail?: string | null;
+      userName?: string | null;
+      studentDisplayId?: string | null;
+      productTitle?: string | null;
+      productDescription?: string | null;
+    }>;
     total: number;
   }> {
-    const { limit = 20, offset = 0, status, userId, productId } = params;
+    const { limit = 20, offset = 0, status, userId, productId, search } = params;
 
     const conditions: any[] = [];
     if (status) conditions.push(eq(paymentOrdersTable.status, status));
     if (userId) conditions.push(eq(paymentOrdersTable.userId, userId as any));
     if (productId) conditions.push(eq(paymentOrdersTable.productId, productId));
 
+    if (search && search.trim()) {
+      const q = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(usersTable.email, q),
+          ilike(usersTable.fullName, q),
+          ilike(usersTable.displayId, q),
+          ilike(paymentOrdersTable.orderReference, q),
+          ilike(paymentOrdersTable.productId, q)
+        )
+      );
+    }
+
     const rows = await db
       .select({
         order: paymentOrdersTable,
         email: usersTable.email,
         fullName: usersTable.fullName,
+        displayId: usersTable.displayId,
+        role: usersTable.role,
       })
       .from(paymentOrdersTable)
       .leftJoin(usersTable, eq(paymentOrdersTable.userId, usersTable.id))
@@ -810,14 +889,31 @@ export class PaymentService {
     const [countResult] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(paymentOrdersTable)
+      .leftJoin(usersTable, eq(paymentOrdersTable.userId, usersTable.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined);
 
     return {
-      orders: rows.map((r) => ({
-        ...r.order,
-        studentEmail: r.email,
-        studentName: r.fullName,
-      })),
+      orders: rows.map((r) => {
+        const prod = getProductById(r.order.productId);
+        const studentDisplayId =
+          r.displayId ||
+          formatUserDisplayId({
+            id: r.order.userId,
+            role: r.role || 'STUDENT',
+            displayId: r.displayId,
+          });
+
+        return {
+          ...r.order,
+          studentEmail: r.email,
+          userEmail: r.email,
+          studentName: r.fullName,
+          userName: r.fullName,
+          studentDisplayId,
+          productTitle: prod?.title || r.order.productId,
+          productDescription: prod?.description || '',
+        };
+      }),
       total: countResult?.count || 0,
     };
   }
