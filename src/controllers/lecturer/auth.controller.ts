@@ -78,12 +78,16 @@ export const lecturerLogin = async (
 
     logger.info(`[LECTURER LOGIN SUCCESS] Lecturer authenticated: ${user.email}`);
 
+    const resolvedDisplayId = user.displayId || formatUserDisplayId(user);
+
     res.status(200).json({
       status: 'success',
       message: 'Lecturer authenticated successfully.',
       tokens,
       user: {
         id: user.id,
+        displayId: resolvedDisplayId,
+        customId: resolvedDisplayId,
         fullName: user.fullName,
         email: user.email,
         username: user.username,
@@ -183,12 +187,16 @@ export const lecturerGoogleLogin = async (
 
     logger.info(`[LECTURER GOOGLE AUTH SUCCESS] Verified Google identity for lecturer: ${user.email}`);
 
+    const resolvedDisplayId = user.displayId || formatUserDisplayId(user);
+
     res.status(200).json({
       status: 'success',
       message: 'Google authentication successful.',
       tokens,
       user: {
         id: user.id,
+        displayId: resolvedDisplayId,
+        customId: resolvedDisplayId,
         fullName: user.fullName,
         email: user.email,
         username: user.username,
@@ -226,6 +234,7 @@ export const getLecturerMe = async (
     const [user] = await db
       .select({
         id: usersTable.id,
+        displayId: usersTable.displayId,
         fullName: usersTable.fullName,
         email: usersTable.email,
         username: usersTable.username,
@@ -245,14 +254,12 @@ export const getLecturerMe = async (
       .leftJoin(departmentsTable, eq(usersTable.departmentId, departmentsTable.id))
       .where(eq(usersTable.id, lecturerId as any));
 
+    const resolvedDisplayId = user?.displayId || formatUserDisplayId(user);
     const enrichedUser = user
       ? {
           ...user,
-          customId: formatUserDisplayId({
-            id: user.id,
-            role: user.role,
-            departmentCode: user.departmentCode,
-          }),
+          displayId: resolvedDisplayId,
+          customId: resolvedDisplayId,
         }
       : req.lecturerUser;
 

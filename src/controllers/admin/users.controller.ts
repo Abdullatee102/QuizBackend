@@ -146,6 +146,14 @@ export const listUsers = async (
   }
 };
 
+function getUserLookupCondition(identifier: string | string[] | undefined | null) {
+  const clean = String(identifier || '').trim();
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean);
+  return isUuid
+    ? eq(usersTable.id, clean)
+    : or(eq(usersTable.displayId, clean), ilike(usersTable.displayId, clean));
+}
+
 export const getUserDetails = async (
   req: AdminAuthenticatedRequest,
   res: Response
@@ -153,10 +161,10 @@ export const getUserDetails = async (
   try {
     const { userId } = req.params;
 
-    if (!userId || typeof userId !== 'string' || userId.length < 10) {
+    if (!userId || typeof userId !== 'string' || userId.trim().length < 4) {
       res.status(400).json({
         status: 'fail',
-        message: 'Invalid user ID provided.',
+        message: 'Invalid user identifier provided.',
       });
       return;
     }
@@ -184,7 +192,7 @@ export const getUserDetails = async (
       .from(usersTable)
       .leftJoin(facultiesTable, eq(usersTable.facultyId, facultiesTable.id))
       .leftJoin(departmentsTable, eq(usersTable.departmentId, departmentsTable.id))
-      .where(eq(usersTable.id, userId as any));
+      .where(getUserLookupCondition(userId));
 
     if (!user) {
       res.status(404).json({
@@ -194,13 +202,7 @@ export const getUserDetails = async (
       return;
     }
 
-    const customId = user.displayId || formatUserDisplayId({
-      id: user.id,
-      role: user.role,
-      displayId: user.displayId,
-      departmentCode: user.departmentCode,
-      username: user.username,
-    });
+    const resolvedDisplayId = user.displayId || formatUserDisplayId(user);
 
     // Additional statistics for this user
     const [quizStats, supportStats] = await Promise.all([
@@ -210,14 +212,14 @@ export const getUserDetails = async (
           averageScore: sql<number>`coalesce(round(avg(${quizHistoryTable.score})::numeric, 1), 0)`.mapWith(Number),
         })
         .from(quizHistoryTable)
-        .where(eq(quizHistoryTable.userId, userId as any)),
+        .where(eq(quizHistoryTable.userId, user.id as any)),
 
       db
         .select({
           totalTickets: sql<number>`count(*)`.mapWith(Number),
         })
         .from(supportRequestsTable)
-        .where(eq(supportRequestsTable.userId, userId as any)),
+        .where(eq(supportRequestsTable.userId, user.id as any)),
     ]);
 
     res.status(200).json({
@@ -225,7 +227,8 @@ export const getUserDetails = async (
       data: {
         user: {
           ...user,
-          customId,
+          displayId: resolvedDisplayId,
+          customId: resolvedDisplayId,
         },
         statistics: {
           quizzesTaken: quizStats[0]?.totalQuizzes || 0,
@@ -266,23 +269,23 @@ export const updateUserStatus = async (
       return;
     }
 
-    if (String(req.adminUser?.id) === String(userId)) {
-      res.status(400).json({
-        status: 'fail',
-        message: 'Administrators cannot change their own account status.',
-      });
-      return;
-    }
-
     const [targetUser] = await db
       .select()
       .from(usersTable)
-      .where(eq(usersTable.id, userId as any));
+      .where(getUserLookupCondition(userId));
 
     if (!targetUser) {
       res.status(404).json({
         status: 'fail',
         message: 'User not found.',
+      });
+      return;
+    }
+
+    if (String(req.adminUser?.id) === String(targetUser.id)) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Administrators cannot change their own account status.',
       });
       return;
     }
@@ -326,7 +329,7 @@ export const updateUserStatus = async (
     const [updatedUser] = await db
       .update(usersTable)
       .set({ status: status as AccountStatus })
-      .where(eq(usersTable.id, userId as any))
+      .where(eq(usersTable.id, targetUser.id))
       .returning({
         id: usersTable.id,
         email: usersTable.email,
@@ -398,23 +401,23 @@ export const updateUserRole = async (
       return;
     }
 
-    if (String(req.adminUser?.id) === String(userId)) {
-      res.status(400).json({
-        status: 'fail',
-        message: 'Administrators cannot alter their own role.',
-      });
-      return;
-    }
-
     const [targetUser] = await db
       .select()
       .from(usersTable)
-      .where(eq(usersTable.id, userId as any));
+      .where(getUserLookupCondition(userId));
 
     if (!targetUser) {
       res.status(404).json({
         status: 'fail',
         message: 'User not found.',
+      });
+      return;
+    }
+
+    if (String(req.adminUser?.id) === String(targetUser.id)) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Administrators cannot alter their own role.',
       });
       return;
     }
@@ -446,7 +449,7 @@ export const updateUserRole = async (
     const [updatedUser] = await db
       .update(usersTable)
       .set({ role: role as UserRole })
-      .where(eq(usersTable.id, userId as any))
+      .where(eq(usersTable.id, targetUser.id))
       .returning({
         id: usersTable.id,
         email: usersTable.email,
@@ -493,7 +496,7 @@ export const updateUserAcademic = async (
     const { userId } = req.params;
     const { facultyId, departmentId, level } = req.body;
 
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId as any));
+    const [user] = await db.select().from(usersTable).where(getUserLookupCondition(userId));
     if (!user) {
       res.status(404).json({ status: 'fail', message: 'User not found.' });
       return;
@@ -529,7 +532,7 @@ export const updateUserAcademic = async (
     const [updated] = await db
       .update(usersTable)
       .set(updates)
-      .where(eq(usersTable.id, userId as any))
+      .where(eq(usersTable.id, user.id))
       .returning();
 
     const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || null;

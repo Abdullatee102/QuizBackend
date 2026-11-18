@@ -242,6 +242,12 @@ export const adminLecturerService = {
    * Retrieves a single lecturer and their full assignment history.
    */
   getLecturerDetails: async (lecturerId: string) => {
+    const cleanId = lecturerId.trim();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
+    const idCondition = isUuid
+      ? eq(usersTable.id, cleanId)
+      : or(eq(usersTable.displayId, cleanId), ilike(usersTable.displayId, cleanId));
+
     const [lecturer] = await db
       .select({
         id: usersTable.id,
@@ -264,7 +270,7 @@ export const adminLecturerService = {
       .leftJoin(departmentsTable, eq(usersTable.departmentId, departmentsTable.id))
       .where(
         and(
-          eq(usersTable.id, lecturerId as any),
+          idCondition,
           eq(usersTable.role, USER_ROLES.LECTURER)
         )
       );
@@ -289,19 +295,16 @@ export const adminLecturerService = {
       .from(courseAssignmentsTable)
       .innerJoin(coursesTable, eq(courseAssignmentsTable.courseId, coursesTable.id))
       .innerJoin(departmentsTable, eq(coursesTable.departmentId, departmentsTable.id))
-      .where(eq(courseAssignmentsTable.lecturerId, lecturerId as any))
+      .where(eq(courseAssignmentsTable.lecturerId, lecturer.id as any))
       .orderBy(desc(courseAssignmentsTable.createdAt));
+
+    const resolvedDisplayId = lecturer.displayId || formatUserDisplayId(lecturer);
 
     return {
       lecturer: {
         ...lecturer,
-        customId: lecturer.displayId || formatUserDisplayId({
-          id: lecturer.id,
-          role: lecturer.role,
-          displayId: lecturer.displayId,
-          departmentCode: lecturer.departmentCode,
-          username: lecturer.username,
-        }),
+        displayId: resolvedDisplayId,
+        customId: resolvedDisplayId,
       },
       assignments,
     };
