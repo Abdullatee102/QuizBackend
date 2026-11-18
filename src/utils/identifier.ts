@@ -60,11 +60,13 @@ export function formatUserDisplayId(user?: {
   if (user.customId && user.customId.startsWith('BB-')) return user.customId;
 
   // Check canonical user map by email or ID
-  if (user.email && CANONICAL_USER_MAP[user.email.toLowerCase()]) {
-    return CANONICAL_USER_MAP[user.email.toLowerCase()];
+  if (user.email) {
+    const canonical = CANONICAL_USER_MAP[user.email.toLowerCase()];
+    if (canonical) return canonical;
   }
-  if (user.id && CANONICAL_USER_MAP[user.id.toLowerCase()]) {
-    return CANONICAL_USER_MAP[user.id.toLowerCase()];
+  if (user.id) {
+    const canonical = CANONICAL_USER_MAP[user.id.toLowerCase()];
+    if (canonical) return canonical;
   }
 
   if (!user.id) return '—';
