@@ -658,7 +658,27 @@ export const paymentController = {
     res: Response
   ): Promise<void> => {
     try {
-      const product = await createProductAsync(req.body);
+      const CATEGORY_TO_PURPOSE: Record<string, string> = {
+        SEMESTER_PASS: 'SEMESTER_SUBSCRIPTION',
+        EXAM_PREP: 'EXAM_PRACTICE',
+        AI_TUTOR: 'AI_ASSISTANCE',
+        CONTENT_PACK: 'MATERIAL_ACCESS',
+        CERTIFICATE: 'CERTIFICATION',
+        INSTITUTIONAL: 'INSTITUTION_PILOT',
+      };
+
+      const rawId =
+        req.body.id ||
+        (req.body.title ? req.body.title.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') : '');
+      const sanitizedId = (rawId || `PRODUCT_${Date.now()}`).slice(0, 64);
+      const sanitizedPurpose =
+        req.body.purpose || CATEGORY_TO_PURPOSE[req.body.category] || 'SEMESTER_SUBSCRIPTION';
+
+      const product = await createProductAsync({
+        ...req.body,
+        id: sanitizedId,
+        purpose: sanitizedPurpose,
+      });
       res.status(201).json({
         status: 'success',
         message: `Product ${product.id} created successfully.`,

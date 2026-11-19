@@ -68,13 +68,16 @@ export const createPaymentProductSchema = z.object({
       .string()
       .min(3, 'Product ID must be at least 3 characters.')
       .regex(/^[A-Z0-9_]+$/, 'Product ID must contain only uppercase letters, numbers, and underscores.')
-      .trim(),
+      .trim()
+      .optional(),
     title: z.string().min(3, 'Title must be at least 3 characters.').trim(),
     description: z.string().min(10, 'Description must be at least 10 characters.').trim(),
     category: z.enum(['SEMESTER_PASS', 'EXAM_PREP', 'AI_TUTOR', 'CONTENT_PACK', 'CERTIFICATE', 'INSTITUTIONAL']),
     amount: z.number().int().positive('Amount must be an integer in kobo greater than 0.'),
     currency: z.literal('NGN').default('NGN'),
-    purpose: z.enum(['SEMESTER_SUBSCRIPTION', 'EXAM_PRACTICE', 'AI_ASSISTANCE', 'MATERIAL_ACCESS', 'CERTIFICATION', 'INSTITUTION_PILOT']),
+    purpose: z
+      .enum(['SEMESTER_SUBSCRIPTION', 'EXAM_PRACTICE', 'AI_ASSISTANCE', 'MATERIAL_ACCESS', 'CERTIFICATION', 'INSTITUTION_PILOT'])
+      .optional(),
     featureKey: z.string().min(2, 'Feature key is required.').trim(),
     durationDays: z.number().int().positive().nullable().optional(),
     academicSession: z.string().trim().nullable().optional(),
