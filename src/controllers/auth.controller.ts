@@ -9,6 +9,7 @@ import { authService } from '../services/authService.js';
 import { emailService } from '../services/emailService.js';
 import { rewardService } from '../services/rewardService.js';
 import { googleAuthService } from '../services/googleAuthService.js';
+import { formatUserDisplayId } from '../utils/identifier.js';
 
 const googleOAuthClient = new OAuth2Client();
 
@@ -190,12 +191,18 @@ export const verifyOtp = async (
     `[VERIFY OTP] Success for target: ${maskedTarget}`
   );
 
+  const resolvedDisplayId = user?.displayId || formatUserDisplayId(user);
+
   res.status(200).json({
     status: 'success',
     message:
       'OTP verified successfully!',
     tokens,
-    user,
+    user: user ? {
+      ...user,
+      displayId: resolvedDisplayId,
+      customId: resolvedDisplayId,
+    } : null,
   });
 };
 
@@ -266,12 +273,18 @@ export const signUp = async (
     `[SIGNUP] Account created for: ${identifier}`
   );
 
+  const resolvedDisplayId = newUser?.displayId || formatUserDisplayId(newUser);
+
   res.status(201).json({
     status: 'success',
     message:
       'Account created successfully!',
     tokens,
-    user: newUser,
+    user: newUser ? {
+      ...newUser,
+      displayId: resolvedDisplayId,
+      customId: resolvedDisplayId,
+    } : null,
   });
 };
 
@@ -339,12 +352,18 @@ export const login = async (
     `[LOGIN] User logged in: ${identifier}`
   );
 
+  const resolvedDisplayId = user?.displayId || formatUserDisplayId(user);
+
   res.status(200).json({
     status: 'success',
     message:
       'Logged in successfully!',
     tokens,
-    user,
+    user: user ? {
+      ...user,
+      displayId: resolvedDisplayId,
+      customId: resolvedDisplayId,
+    } : null,
   });
 };
 
@@ -384,11 +403,18 @@ export const googleAuth = async (
   let user = await authService.findUser(userEmail);
 
   if (!user) {
-    const emailPrefix = userEmail.split('@')[0] || 'user';
-    const uniqueUsername = `${emailPrefix.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Math.floor(1000 + Math.random() * 9000)}`;
+    const emailPrefix = userEmail.split('@')[0] || 'scholar';
+    const cleanPrefix =
+      emailPrefix.toLowerCase().replace(/^[^a-z0-9]+/, '').replace(/[^a-z0-9]/g, '') || 'scholar';
+    const uniqueUsername = `${cleanPrefix}_${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const cleanFullName =
+      (name || '').replace(/^[@\s'"`\-_.]+/, '').trim() ||
+      (cleanPrefix.charAt(0).toUpperCase() + cleanPrefix.slice(1)) ||
+      'Scholar';
 
     user = await authService.saveUser(userEmail, {
-      fullName: name || 'Google User',
+      fullName: cleanFullName,
       username: uniqueUsername,
       email: userEmail,
       phoneNumber: null,
@@ -412,11 +438,17 @@ export const googleAuth = async (
 
   logger.info(`[GOOGLE AUTH] Successful verification & login for Google user (${sub}): ${email}`);
 
+  const resolvedDisplayId = user?.displayId || formatUserDisplayId(user);
+
   res.status(200).json({
     status: 'success',
     message: 'Google authentication successful',
     tokens,
-    user,
+    user: user ? {
+      ...user,
+      displayId: resolvedDisplayId,
+      customId: resolvedDisplayId,
+    } : null,
   });
 };
 
@@ -755,9 +787,15 @@ export const getProfile = async (
     `[GET PROFILE] Fetched profile with stats for user ID: ${userId}`
   );
 
+  const resolvedDisplayId = user?.displayId || formatUserDisplayId(user);
+
   res.status(200).json({
     status: 'success',
-    data: user,
+    data: {
+      ...user,
+      displayId: resolvedDisplayId,
+      customId: resolvedDisplayId,
+    },
   });
 };
 

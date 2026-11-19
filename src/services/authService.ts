@@ -583,16 +583,13 @@ export const authService = {
       await db
         .insert(usersTable)
         .values({
-          fullName:
-            userData.fullName ||
-            'User',
+          fullName: userData.fullName
+            ? String(userData.fullName).replace(/^[@\s'"`\-_.]+/, '').trim() || 'Scholar'
+            : 'Scholar',
 
-          username:
-            userData.username
-              ? userData.username
-                  .trim()
-                  .toLowerCase()
-              : null,
+          username: userData.username
+            ? String(userData.username).trim().replace(/^@+/, '').toLowerCase()
+            : null,
 
           email:
             userData.email ||
