@@ -214,23 +214,32 @@ export const seedDatabase = async () => {
           }
         }
 
-        // Clean replacement: delete old questions and batch-insert verified questions for the department
-        if (courseIdsToRefresh.length > 0) {
-          // Chunk deletions if large
+        // Non-destructive idempotent sync: insert new verified questions without dropping referenced rows
+        if (questionsToInsert.length > 0) {
+          // Fetch existing questions for these courses in chunks to avoid parameter limits
+          const existingKeySet = new Set<string>();
           for (let i = 0; i < courseIdsToRefresh.length; i += 100) {
             const chunk = courseIdsToRefresh.slice(i, i + 100);
-            await db
-              .delete(questionsTable)
+            const existingDbQuestions = await db
+              .select({ courseId: questionsTable.courseId, question: questionsTable.question })
+              .from(questionsTable)
               .where(inArray(questionsTable.courseId, chunk));
+            for (const eq of existingDbQuestions) {
+              existingKeySet.add(`${eq.courseId}_${eq.question.trim().toLowerCase()}`);
+            }
           }
 
+          const trulyNewQuestions = questionsToInsert.filter(
+            (q) => !existingKeySet.has(`${q.courseId}_${q.question.trim().toLowerCase()}`)
+          );
+
           // Chunk insertions to prevent PostgreSQL query parameter limits
-          for (let i = 0; i < questionsToInsert.length; i += 300) {
-            const chunk = questionsToInsert.slice(i, i + 300);
+          for (let i = 0; i < trulyNewQuestions.length; i += 300) {
+            const chunk = trulyNewQuestions.slice(i, i + 300);
             await db.insert(questionsTable).values(chunk);
           }
 
-          totalQuestionsSynced += questionsToInsert.length;
+          totalQuestionsSynced += trulyNewQuestions.length;
         }
 
         console.log(
