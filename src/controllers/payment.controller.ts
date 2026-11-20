@@ -13,6 +13,7 @@ import {
   updateProductAsync,
 } from '../services/payment/products.js';
 import { entitlementService } from '../services/payment/entitlementService.js';
+import { systemSettingsService } from '../services/systemSettingsService.js';
 import logger from '../config/logger.js';
 
 export const paymentController = {
@@ -319,11 +320,19 @@ export const paymentController = {
 
     try {
       const entitlements = await paymentService.getUserEntitlements(String(userId));
+      const trialStatus = await systemSettingsService.evaluateStudentAccessStatus(String(userId));
 
       res.status(200).json({
         status: 'success',
         data: {
           entitlements,
+          trialInfo: trialStatus.hasTrialAccess ? {
+            hasTrialAccess: true,
+            trialType: trialStatus.trialType,
+            endsAt: trialStatus.endsAt,
+            remainingDays: trialStatus.remainingDays,
+            description: trialStatus.description,
+          } : null,
         },
       });
     } catch (error: any) {
@@ -805,6 +814,111 @@ export const paymentController = {
       res.status(500).json({
         status: 'error',
         message: 'Failed to retrieve administrative order history.',
+      });
+    }
+  },
+
+  // =====================================================
+  // ADMIN: GET ACCESS CONTROL & TRIAL CONFIGURATION
+  // =====================================================
+  getAccessControlSettings: async (
+    _req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> => {
+    try {
+      const config = await systemSettingsService.getAccessControlConfig();
+      const now = new Date();
+      let remainingGlobalDays = 0;
+      let isGlobalTrialExpired = false;
+
+      if (config.globalTrialEndsAt) {
+        const endDate = new Date(config.globalTrialEndsAt);
+        isGlobalTrialExpired = now >= endDate;
+        if (!isGlobalTrialExpired) {
+          remainingGlobalDays = Math.max(1, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+        }
+      }
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          config,
+          meta: {
+            now: now.toISOString(),
+            remainingGlobalDays,
+            isGlobalTrialExpired,
+          },
+        },
+      });
+    } catch (error: any) {
+      logger.error(`[PAYMENT CONTROLLER] getAccessControlSettings error: ${error.message}`);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to retrieve access control configuration.',
+      });
+    }
+  },
+
+  // =====================================================
+  // ADMIN: UPDATE ACCESS CONTROL & TRIAL CONFIGURATION
+  // =====================================================
+  updateAccessControlSettings: async (
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> => {
+    const adminId = req.user?.id || req.user?.userId;
+    const {
+      isGlobalTrialActive,
+      globalTrialEndsAt,
+      globalTrialDescription,
+      isUserTrialEnabled,
+      userTrialDays,
+      enforceSubscription,
+    } = req.body;
+
+    try {
+      const updates: Record<string, any> = {};
+
+      if (typeof isGlobalTrialActive === 'boolean') {
+        updates.isGlobalTrialActive = isGlobalTrialActive;
+      }
+      if (globalTrialEndsAt !== undefined) {
+        updates.globalTrialEndsAt = globalTrialEndsAt;
+      }
+      if (typeof globalTrialDescription === 'string') {
+        updates.globalTrialDescription = globalTrialDescription.trim();
+      }
+      if (typeof isUserTrialEnabled === 'boolean') {
+        updates.isUserTrialEnabled = isUserTrialEnabled;
+      }
+      if (typeof userTrialDays === 'number') {
+        if (userTrialDays < 0 || userTrialDays > 365) {
+          res.status(400).json({
+            status: 'fail',
+            message: 'User trial days must be between 0 and 365 days.',
+          });
+          return;
+        }
+        updates.userTrialDays = Math.floor(userTrialDays);
+      }
+      if (typeof enforceSubscription === 'boolean') {
+        updates.enforceSubscription = enforceSubscription;
+      }
+
+      const updated = await systemSettingsService.updateAccessControlConfig(updates, String(adminId));
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Campus access control settings updated successfully.',
+        data: {
+          config: updated,
+        },
+      });
+    } catch (error: any) {
+      logger.error(`[PAYMENT CONTROLLER] updateAccessControlSettings error: ${error.message}`);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to update access control configuration.',
       });
     }
   },

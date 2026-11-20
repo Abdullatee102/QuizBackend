@@ -3360,6 +3360,25 @@ export const userStreaksTable = pgTable(
 export type UserStreak = typeof userStreaksTable.$inferSelect;
 export type NewUserStreak = typeof userStreaksTable.$inferInsert;
 
+// =====================================================
+// SYSTEM SETTINGS & ACCESS CONTROL CONFIGURATION
+// =====================================================
+
+export const systemSettingsTable = pgTable(
+  'system_settings',
+  {
+    key: text('key').primaryKey(), // e.g. 'access_control'
+    value: jsonb('value').$type<Record<string, any>>().notNull(),
+    description: text('description'),
+    updatedBy: uuid('updated_by').references(() => usersTable.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  }
+);
+
+export type SystemSetting = typeof systemSettingsTable.$inferSelect;
+export type NewSystemSetting = typeof systemSettingsTable.$inferInsert;
+
 
 
 

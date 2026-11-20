@@ -15,6 +15,7 @@ import {
   type PaymentOrder,
 } from '../../db/schema.js';
 import { auditService } from '../admin/auditService.js';
+import { systemSettingsService } from '../systemSettingsService.js';
 import logger from '../../config/logger.js';
 import type { EntitlementCheckResult, PaymentProduct } from './types.js';
 
@@ -62,6 +63,22 @@ export const entitlementService = {
       .orderBy(desc(userEntitlementsTable.createdAt));
 
     if (!entitlements || entitlements.length === 0) {
+      // Check if student has active free trial or campus-wide open access
+      const trialStatus = await systemSettingsService.evaluateStudentAccessStatus(userId);
+      if (trialStatus.hasTrialAccess) {
+        return {
+          hasAccess: true,
+          featureKey,
+          status: 'ACTIVE',
+          remainingDays: trialStatus.remainingDays,
+          expiryDate: trialStatus.endsAt ? new Date(trialStatus.endsAt) : null,
+          isTrial: true,
+          trialType: trialStatus.trialType,
+          trialEndsAt: trialStatus.endsAt,
+          trialDescription: trialStatus.description,
+          reason: 'ACTIVE_TRIAL_PERIOD',
+        };
+      }
       return { hasAccess: false, featureKey, reason: 'NO_ACTIVE_ENTITLEMENT' };
     }
 
@@ -144,6 +161,23 @@ export const entitlementService = {
           semester: ent.semester,
         };
       }
+    }
+
+    // Fallback: Check if student has active free trial or campus-wide open access
+    const trialStatus = await systemSettingsService.evaluateStudentAccessStatus(userId);
+    if (trialStatus.hasTrialAccess) {
+      return {
+        hasAccess: true,
+        featureKey,
+        status: 'ACTIVE',
+        remainingDays: trialStatus.remainingDays,
+        expiryDate: trialStatus.endsAt ? new Date(trialStatus.endsAt) : null,
+        isTrial: true,
+        trialType: trialStatus.trialType,
+        trialEndsAt: trialStatus.endsAt,
+        trialDescription: trialStatus.description,
+        reason: 'ACTIVE_TRIAL_PERIOD',
+      };
     }
 
     return { hasAccess: false, featureKey, reason: 'FEATURE_NOT_INCLUDED_IN_ENTITLEMENTS' };

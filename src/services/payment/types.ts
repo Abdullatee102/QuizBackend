@@ -97,4 +97,8 @@ export interface EntitlementCheckResult {
   academicSession?: string | null | undefined;
   semester?: string | null | undefined;
   reason?: string | undefined;
+  isTrial?: boolean | undefined;
+  trialType?: 'GLOBAL_OPEN_ACCESS' | 'USER_ONBOARDING_TRIAL' | null | undefined;
+  trialEndsAt?: string | null | undefined;
+  trialDescription?: string | null | undefined;
 }

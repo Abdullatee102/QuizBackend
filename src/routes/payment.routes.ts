@@ -145,4 +145,18 @@ router.post(
   paymentController.reconcilePendingOrders
 );
 
+// Get current campus access control & free trial settings
+router.get(
+  '/admin/access-control',
+  protectAdmin as any,
+  paymentController.getAccessControlSettings
+);
+
+// Update campus access control, trial windows, and subscription enforcement
+router.put(
+  '/admin/access-control',
+  protectAdmin as any,
+  paymentController.updateAccessControlSettings
+);
+
 export default router;

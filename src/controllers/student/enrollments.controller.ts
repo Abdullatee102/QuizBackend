@@ -294,6 +294,15 @@ export const getAvailableCourseOfferingsHandler = async (
       data: {
         offerings: result,
         hasActiveSubscription: Boolean(accessCheck.hasAccess),
+        isTrial: Boolean(accessCheck.isTrial),
+        trialInfo: accessCheck.isTrial
+          ? {
+              trialType: accessCheck.trialType,
+              trialEndsAt: accessCheck.trialEndsAt,
+              remainingDays: accessCheck.remainingDays,
+              description: accessCheck.trialDescription,
+            }
+          : null,
       },
     });
   } catch (error: any) {
