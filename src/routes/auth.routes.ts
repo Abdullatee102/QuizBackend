@@ -94,6 +94,7 @@ import {
   protect,
   type AuthenticatedRequest,
 } from '../middlewares/auth.middleware.js';
+import { requireEntitlement } from '../middlewares/entitlement.middleware.js';
 
 import {
   sendOtpSchema,
@@ -372,11 +373,11 @@ router.get('/offerings/:offeringId/eligibility', protect, checkOfferingEligibili
 // ACADEMIC ASSESSMENTS DISCOVERY & ATTEMPTS (BB-07F.4 & BB-07F.5)
 // =====================================================
 
-router.get('/offerings/:offeringId/assessments', protect, getStudentOfferingAssessmentsHandler);
-router.get('/assessments/available', protect, getAvailableAssessmentsHandler);
-router.get('/assessments/:assessmentId/instructions', protect, getAssessmentInstructionsHandler);
-router.get('/assessments/:assessmentId', protect, getStudentAssessmentDetailsHandler);
-router.post('/assessments/:assessmentId/attempts', protect, startOrResumeAttemptHandler);
+router.get('/offerings/:offeringId/assessments', protect, requireEntitlement('ACADEMIC_ASSESSMENTS'), getStudentOfferingAssessmentsHandler);
+router.get('/assessments/available', protect, requireEntitlement('ACADEMIC_ASSESSMENTS'), getAvailableAssessmentsHandler);
+router.get('/assessments/:assessmentId/instructions', protect, requireEntitlement('ACADEMIC_ASSESSMENTS'), getAssessmentInstructionsHandler);
+router.get('/assessments/:assessmentId', protect, requireEntitlement('ACADEMIC_ASSESSMENTS'), getStudentAssessmentDetailsHandler);
+router.post('/assessments/:assessmentId/attempts', protect, requireEntitlement('ACADEMIC_ASSESSMENTS'), startOrResumeAttemptHandler);
 router.put(
   '/assessments/:assessmentId/attempts/:attemptId/answers',
   protect,
@@ -404,11 +405,13 @@ router.get(
 router.get(
   '/offerings/:offeringId/attendance',
   protect,
+  requireEntitlement('LECTURER_COURSES'),
   getStudentSelfAttendanceHandler
 );
 router.post(
   '/offerings/:offeringId/attendance/:sessionId/check-in',
   protect,
+  requireEntitlement('LECTURER_COURSES'),
   studentSelfMarkAttendanceHandler
 );
 router.post(
@@ -421,11 +424,13 @@ router.post(
 router.get(
   '/offerings/:offeringId/materials',
   protect,
+  requireEntitlement('COURSE_MATERIALS'),
   listStudentMaterialsHandler
 );
 router.get(
   '/offerings/:offeringId/materials/:materialId/download',
   protect,
+  requireEntitlement('COURSE_MATERIALS'),
   downloadStudentMaterialHandler
 );
 
@@ -440,11 +445,13 @@ router.get(
 router.get(
   '/offerings/:offeringId/discussions',
   protect,
+  requireEntitlement('LECTURER_COURSES'),
   listStudentDiscussionsHandler
 );
 router.post(
   '/offerings/:offeringId/discussions',
   protect,
+  requireEntitlement('LECTURER_COURSES'),
   validate(createDiscussionSchema),
   createStudentDiscussionHandler
 );

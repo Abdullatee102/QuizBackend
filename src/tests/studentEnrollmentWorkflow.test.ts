@@ -16,6 +16,7 @@ import {
   attendanceRecordsTable,
   USER_ROLES,
   ACCOUNT_STATUS,
+  userEntitlementsTable,
 } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { authService } from '../services/authService.js';
@@ -362,6 +363,37 @@ describe('BB-06 / BB-07: Student Self-Enrollment & Lecturer Integration E2E Work
       role: stUnenrolled!.role,
     });
     studentUnenrolledToken = stUnenrolledTokens.accessToken;
+
+    const expiry = new Date(Date.now() + 120 * 24 * 60 * 60 * 1000);
+    await db.insert(userEntitlementsTable).values([
+      {
+        userId: st1!.id,
+        featureKey: 'SEMESTER_PREMIUM_ACCESS',
+        productId: 'SEMESTER_PASS_HARMATTAN_2026',
+        academicSession: testSession,
+        semester: testSemester,
+        status: 'ACTIVE',
+        expiryDate: expiry,
+      },
+      {
+        userId: st2!.id,
+        featureKey: 'SEMESTER_PREMIUM_ACCESS',
+        productId: 'SEMESTER_PASS_HARMATTAN_2026',
+        academicSession: testSession,
+        semester: testSemester,
+        status: 'ACTIVE',
+        expiryDate: expiry,
+      },
+      {
+        userId: st3!.id,
+        featureKey: 'SEMESTER_PREMIUM_ACCESS',
+        productId: 'SEMESTER_PASS_HARMATTAN_2026',
+        academicSession: testSession,
+        semester: testSemester,
+        status: 'ACTIVE',
+        expiryDate: expiry,
+      },
+    ]);
   });
 
   after(async () => {
@@ -369,6 +401,10 @@ describe('BB-06 / BB-07: Student Self-Enrollment & Lecturer Integration E2E Work
     await new Promise<void>((resolve) => server.close(() => resolve()));
 
     try {
+      if (student1Id) await db.delete(userEntitlementsTable).where(eq(userEntitlementsTable.userId, student1Id as any));
+      if (student2Id) await db.delete(userEntitlementsTable).where(eq(userEntitlementsTable.userId, student2Id as any));
+      if (student3Id) await db.delete(userEntitlementsTable).where(eq(userEntitlementsTable.userId, student3Id as any));
+
       if (offeringA1Id) {
         await db.delete(attendanceRecordsTable).where(eq(attendanceRecordsTable.studentId, student1Id as any));
         await db.delete(attendanceSessionsTable).where(eq(attendanceSessionsTable.offeringId, offeringA1Id as any));

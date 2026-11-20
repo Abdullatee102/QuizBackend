@@ -10,6 +10,7 @@ import {
   type EnrollmentSource,
 } from '../db/schema.js';
 import { auditService } from './admin/auditService.js';
+import { entitlementService } from './payment/entitlementService.js';
 import type { AuditContextInput } from './courseOfferingService.js';
 
 export const studentEnrollmentService = {
@@ -63,8 +64,23 @@ export const studentEnrollmentService = {
       throw new Error('Student account is suspended or disabled');
     }
 
-    // 3. For student self-enrollment, enforce eligibility (matching department, faculty, and level)
+    // 3. For student self-enrollment, enforce active subscription and academic eligibility
     if (source === 'STUDENT_SELF') {
+      const entitlementCheck = await entitlementService.checkUserFeatureAccess(
+        studentId,
+        'COURSE_ENROLLMENT',
+        { academicSession: offering.academicSession, semester: offering.semester }
+      );
+
+      if (!entitlementCheck.hasAccess) {
+        const error: any = new Error(
+          'An active Brain Buzz semester subscription is required to enroll in and access lecturer-assigned courses.'
+        );
+        error.code = 'PREMIUM_ENTITLEMENT_REQUIRED';
+        error.status = 403;
+        throw error;
+      }
+
       if (student.departmentId && offering.departmentId && student.departmentId !== offering.departmentId) {
         throw new Error('Student is not eligible for course offerings outside their department');
       }

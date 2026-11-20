@@ -27,6 +27,10 @@ const SEMESTER_PASS_UNLOCKED_FEATURES = new Set([
   'REVISION_RESOURCES',
   'PREMIUM_QUIZ_PASS',
   'EXAM_PRACTICE_BUNDLE',
+  'COURSE_ENROLLMENT',
+  'LECTURER_COURSES',
+  'COURSE_MATERIALS',
+  'ACADEMIC_ASSESSMENTS',
 ]);
 
 export const entitlementService = {
@@ -109,7 +113,11 @@ export const entitlementService = {
 
       // Rule B: Student holds an active EXAM_PREP_ACCESS pass
       if (ent.featureKey === 'EXAM_PREP_ACCESS' || ent.featureKey === 'EXAM_PRACTICE_BUNDLE') {
-        if (featureKey === 'EXAM_PREP_ACCESS' || featureKey === 'EXAM_PRACTICE_BUNDLE') {
+        if (
+          featureKey === 'EXAM_PREP_ACCESS' ||
+          featureKey === 'EXAM_PRACTICE_BUNDLE' ||
+          featureKey === 'ACADEMIC_ASSESSMENTS'
+        ) {
           return {
             hasAccess: true,
             featureKey,

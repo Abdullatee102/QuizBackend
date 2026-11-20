@@ -28,7 +28,7 @@ export const requireEntitlement = (featureKey: string) => {
 
     // Role-based administrative testing bypass
     const userRole = req.user?.role;
-    if (userRole === 'SUPER_ADMIN' || userRole === 'CONTENT_ADMIN') {
+    if (userRole === 'SUPER_ADMIN' || userRole === 'CONTENT_ADMIN' || userRole === 'LECTURER') {
       return next();
     }
 

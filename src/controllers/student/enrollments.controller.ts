@@ -11,6 +11,7 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { studentEnrollmentService } from '../../services/studentEnrollmentService.js';
 import { eligibilityService } from '../../services/eligibilityService.js';
+import { entitlementService } from '../../services/payment/entitlementService.js';
 import type { AuthenticatedRequest } from '../../middlewares/auth.middleware.js';
 
 export const getStudentEnrollmentsHandler = async (
@@ -124,6 +125,18 @@ export const enrollInOfferingHandler = async (
       data: { enrollment },
     });
   } catch (error: any) {
+    if (error.code === 'PREMIUM_ENTITLEMENT_REQUIRED' || error.status === 403) {
+      res.status(403).json({
+        status: 'fail',
+        code: 'PREMIUM_ENTITLEMENT_REQUIRED',
+        message: error.message || 'An active Brain Buzz semester subscription is required to enroll in and access lecturer-assigned courses.',
+        data: {
+          featureKey: 'COURSE_ENROLLMENT',
+          upgradeUrl: '/api/payments/products',
+        },
+      });
+      return;
+    }
     res.status(400).json({
       status: 'fail',
       message: error.message || 'Failed to enrol in course offering.',
@@ -271,9 +284,17 @@ export const getAvailableCourseOfferingsHandler = async (
       enrollmentStatus: enrollmentMap.get(String(off.id)) || null,
     }));
 
+    const accessCheck = await entitlementService.checkUserFeatureAccess(
+      String(studentId),
+      'COURSE_ENROLLMENT'
+    );
+
     res.status(200).json({
       status: 'success',
-      data: { offerings: result },
+      data: {
+        offerings: result,
+        hasActiveSubscription: Boolean(accessCheck.hasAccess),
+      },
     });
   } catch (error: any) {
     res.status(500).json({
